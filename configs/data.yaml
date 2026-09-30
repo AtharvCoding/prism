@@ -29,7 +29,9 @@ universes:
     start: "2007-04-04"       # bound by HYG inception 2007-04-04
     inherits: A
     defensive: [SHY, IEF, TLT, GLD]
-    macro_extra: [HYG, LQD, "DX-Y.NYB", "CL=F"]
+    # ^VIX3M (inception 2002-12) postdates Universe A's 1999 start, so the VIX
+    # term structure is a B-only feature. Verify availability at snapshot time.
+    macro_extra: [HYG, LQD, "DX-Y.NYB", "CL=F", "^VIX3M"]
 
 # Assets that are allocatable by the Tier 1 allocator (and, in Phase B, the
 # agent). The benchmark and macro series are signals, not holdings.
@@ -62,6 +64,7 @@ inception:
   "^IRX": "1990-01-02"
   "DX-Y.NYB": "1990-01-02"
   "CL=F": "2000-08-23"
+  "^VIX3M": "2002-12-04"
 
 excluded:
   XLRE: "inception 2015-10 — insufficient history"
