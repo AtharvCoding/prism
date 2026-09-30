@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prism"
+version = "0.1.0"
+description = "Probabilistic Regime-Informed Systematic Management — regime-aware portfolio allocation research codebase"
+requires-python = "==3.11.*"
+readme = "README.md"
+
+# Phase A dependencies only. gymnasium and stable-baselines3 are DEFERRED to
+# Phase B (spec §2) and must not be added here until Phase A's exit criteria
+# in §0.3 are met.
+dependencies = [
+    "numpy==2.1.3",
+    "pandas==3.0.6",
+    "pyarrow==25.0.1",
+    "scipy==1.17.1",
+    "scikit-learn==1.9.1",
+    "hmmlearn==0.3.3",
+    "torch==2.14.1",
+    "yfinance==1.7.0",
+    "pandas-market-calendars==5.4.0",
+    "matplotlib==3.11.2",
+    "seaborn==0.13.2",
+    "PyYAML==6.0.3",
+    "pydantic==2.13.5",
+    "tqdm==4.70.1",
+    "rich==15.0.0",
+    "statsmodels==0.15.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers --strict-config"
+# No filterwarnings='ignore'. Spec §1: convergence and deprecation warnings
+# must stay visible. Errors are raised for the two classes that mask real bugs.
+filterwarnings = [
+    "default",
+    "error::FutureWarning",
+    "error::pandas.errors.SettingWithCopyWarning",
+]
+markers = [
+    "slow: tests that take more than a few seconds",
+    "network: tests that require network access (never run in CI)",
+]

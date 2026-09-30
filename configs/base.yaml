@@ -1,0 +1,27 @@
+# Master config. Composes the component configs; single source of truth.
+# Spec §1, §3. Every script resolves its settings through this file and writes
+# the resulting config hash into its run manifest.
+project: prism
+phase: A                      # spec §0.3 — Phase B is out of scope
+
+includes:
+  data: "configs/data.yaml"
+  hmm: "configs/hmm.yaml"
+  encoder: "configs/encoder.yaml"
+  tier1: "configs/experiments/tier1_probes.yaml"
+
+paths:
+  raw: "data/raw"
+  interim: "data/interim"
+  processed: "data/processed"
+  holdout: "data/holdout"
+  reports: "reports"
+  figures: "reports/figures"
+  tables: "reports/tables"
+  logs: "reports/logs"
+
+determinism:
+  pythonhashseed: 0
+  torch_deterministic: true
+  # Log, never silently ignore, paths where full determinism is unavailable.
+  warn_on_nondeterminism: true

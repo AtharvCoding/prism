@@ -1,0 +1,53 @@
+# HMM configuration. Spec §8. Implemented in Step 2 — this file is the
+# contract the Step 2 code must satisfy, and is validated by config.py now.
+
+# Observations MUST be low-autocorrelation. Rolling statistics such as
+# spy_vol_20 are FORBIDDEN here: feeding one was defect B3, which violated
+# conditional independence, saturated the posteriors and collapsed the states
+# into a volatility ladder. The blocklist is enforced in config validation.
+observation_blocklist_substrings: ["vol_20", "vol_60", "mom_20", "mom_60", "corr_60", "skew_60", "kurt_60"]
+
+specifications:
+  H1:                         # univariate — volatility structure must emerge
+    observations: ["SPY_return_1d"]
+  H2:                         # multivariate — changes only, all stationary
+    observations:
+      - "SPY_return_1d"
+      - "vix_change"
+      - "credit_proxy_change"
+      - "curve_change"
+      - "avg_pairwise_corr_change"
+
+fit:
+  universe: A                 # spec §3.2
+  covariance_type: "full"
+  k_range: [2, 3, 4, 5, 6, 7, 8]
+  n_restarts: 20              # spec §8.4 — report the whole LL distribution
+  n_iter: 1000
+  tol: 1.0e-4
+
+selection:
+  # Spec §8.4: validation log-likelihood is PRIMARY; BIC/AIC are secondary.
+  primary: "val_loglik"
+  secondary: ["bic", "aic"]
+  # Degenerate-solution rejection (spec §8.4).
+  min_expected_duration_days: 5
+  min_unconditional_prob: 0.02
+
+labeling:
+  # Spec §8.5. Names are derived from position after sorting, NEVER hard-coded.
+  sort_by: "state_return_std"
+  ascending: true
+
+walkforward:
+  scheme: "expanding"         # spec §6.2 — never a fixed 5-year window
+  refit_cadence: "monthly"
+  carry_filter_state: true    # spec §8.6 — do not restart from startprob_
+
+robustness:
+  # Spec §3.2 required check: refit on B's train window only and compare.
+  refit_on_b_train: true
+
+evaluation:
+  drawdown_bear_threshold: 0.20   # SPY >= 20% off its high
+  entropy_saturation_warn: 0.05

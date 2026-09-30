@@ -1,0 +1,42 @@
+# Tier 1 representation ablation. Spec §13.1. Run in Step 4a.
+universe: B
+walkforward:
+  scheme: "expanding"
+  refit_cadence: "annual"
+
+variants: ["V1", "V1p", "V2", "V3", "V4", "C1", "C2", "C3"]
+diagnostic_variants: ["O1"]   # leaky oracle — NEVER reported as a result
+
+targets:
+  - "fwd_vol_5"
+  - "fwd_vol_20"
+  - "fwd_max_drawdown_20"
+  - "fwd_corr_20"
+  - "fwd_ret_20"              # near-zero OOS R2 is the EXPECTED outcome (§13.1)
+
+probe:
+  regression: "ridge"
+  classification: "logistic"
+  # Same grid for every variant — unequal tuning invalidates the ablation.
+  alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  tune_on: "validation_folds"
+
+allocator:
+  methods: ["mean_variance", "vol_target", "regime_vol_target"]
+  covariance: "ledoit_wolf"
+  covariance_window: 60
+  cost_bps_per_side: 5
+  cost_sensitivity_bps: [0, 5, 10, 20]
+
+uncertainty:
+  bootstrap: "stationary_block"
+  block_length_days: 20
+  n_bootstrap: 2000
+  ci_level: 0.95
+
+gates:
+  # Spec §13.1 gate rule. A component must beat its OWN control with
+  # non-overlapping CIs or it is redesigned/dropped before Phase B.
+  lstm_adds_value: ["V2 > V1p", "V2 > C1"]
+  hmm_adds_value: ["V3 > C2", "V3 > C3"]
+  research_question: ["V4 > V2"]

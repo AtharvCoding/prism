@@ -1,0 +1,2 @@
+# Reference notebooks are read-only historical artefacts; keep diffs quiet.
+reference/*.ipynb -diff linguist-generated

@@ -1,0 +1,50 @@
+# LSTM encoder configuration. Spec §9. Implemented in Step 3.
+
+# DECISION 3 (§3.3) — fit on Universe A, confirmed 2026-10-01. The §3.2
+# robustness check (refit on B's 2007-2017 train window) is reported alongside.
+fit:
+  universe: A
+  robustness_refit_on_b_train: true
+
+window:
+  size: 30
+  sweep: [10, 20, 30, 60]
+
+architecture:
+  latent_dim: 16
+  latent_dim_sweep: [8, 16, 32]
+  hidden_dim: 64
+  hidden_dim_sweep: [32, 64]
+  num_layers: 1
+  dropout: 0.2
+  weight_decay: 1.0e-4
+  # Spec §9.3 / defect C3: ReLU on the latent produced permanently dead units.
+  # Only these are permitted; config validation rejects anything else.
+  latent_activation: "tanh"   # one of {linear, tanh}
+
+variants: ["AE", "DAE", "VAE", "PRED"]
+dae_noise_std: 0.1
+vae_kl_weight: 0.001
+pred_targets: ["fwd_vol_5", "fwd_vol_20", "fwd_corr_20"]
+
+training:
+  batch_size: 64
+  lr: 1.0e-3
+  max_epochs: 500             # train to convergence, not a fixed count
+  patience: 25
+  # Spec §9.3 / defect C2: early stopping and checkpointing are driven by
+  # VALIDATION loss. Enforced by config validation.
+  early_stopping_metric: "val_loss"
+  checkpoint_metric: "val_loss"
+  grad_clip_norm: 1.0
+  n_seeds: 5
+
+walkforward:
+  scheme: "expanding"
+  refit_cadence: "annual"
+
+evaluation:
+  dead_unit_var_threshold: 1.0e-4
+  drift_test: "ks"
+
+baselines: ["pca_encoder", "random_encoder", "rolling_stats", "raw_window"]
