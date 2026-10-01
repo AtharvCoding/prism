@@ -29,12 +29,17 @@ data/raw/*/*
 !data/raw/*/MANIFEST.json
 data/interim/
 
-# The processed feature parquet is derived, reproducible data, same category
-# as the raw snapshot — not committed. `*_schema.json` is a small, human-
-# readable provenance record (schema hash, column list, warm-up date) in the
-# same spirit as MANIFEST.json, and IS committed.
+# The processed feature/posterior parquet is derived, reproducible data, same
+# category as the raw snapshot — not committed (and, unlike the raw snapshot,
+# these ARE exactly reproducible: every fitting stage derives its seeds from
+# the committed master seed, so re-running a script against the same frozen
+# snapshot reproduces them bit-for-bit). `*_schema.json` and `*_summary.json`
+# are small, human-readable provenance/results records (schema hash and
+# column list; K-selection and evaluation headline numbers) in the same
+# spirit as MANIFEST.json, and ARE committed.
 data/processed/*
 !data/processed/*_schema.json
+!data/processed/*_summary.json
 data/holdout/
 
 # Generated outputs. reports/figures and reports/logs are regenerated freely
