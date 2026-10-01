@@ -442,6 +442,48 @@ def test_vix_change_is_a_log_change(idx):
     np.testing.assert_allclose(out["vix_change"].iloc[10], np.log(1.02), rtol=1e-12)
 
 
+def test_oil_vol_tolerates_a_negative_print(idx):
+    """D-014: WTI printed -$37.63 on 2020-04-20. ``oil_vol_20`` must not gap.
+
+    A log return is undefined across a sign change and a mask-to-positive
+    (the yield convention, D-006) turns the one bad day into a ~20-session
+    hole in the rolling std. ``oil_vol_20`` uses a simple return instead,
+    which stays finite and reports a real, elevated volatility for the month
+    after the event — not a gap.
+    """
+    rng = np.random.default_rng(9)
+    n = len(idx)
+    oil = 40.0 + rng.normal(0, 1.0, n)
+    # A dramatic plunge through zero to a negative print, then a recovery —
+    # the real shape of the 2020-04-20 event, compressed into a short window.
+    crash_at = 200
+    oil[crash_at] = -37.63
+    oil[crash_at + 1 : crash_at + 10] = np.linspace(-10.0, 35.0, 9)
+    macro = pd.DataFrame(
+        {
+            "^VIX": np.full(n, 18.0),
+            "^TNX": np.full(n, 3.5),
+            "^IRX": np.full(n, 1.25),
+            "CL=F": oil,
+        },
+        index=idx,
+    )
+    out = build_macro_features(macro)
+
+    # No NaN/inf anywhere past the warm-up window — including through and
+    # after the crash.
+    warm = out["oil_vol_20"].iloc[30:]
+    assert np.isfinite(warm.to_numpy()).all(), (
+        "oil_vol_20 produced a non-finite value across the negative print"
+    )
+    # And the volatility spike is real, not smoothed away: the 20 days
+    # following the crash must show materially higher realised vol than the
+    # calm period before it.
+    before = out["oil_vol_20"].iloc[100:190].mean()
+    after = out["oil_vol_20"].iloc[crash_at : crash_at + 20].mean()
+    assert after > 3 * before, "the crash should dominate the rolling realised vol"
+
+
 # --------------------------------------------------------------------------- #
 # scaling and pruning — §5.5
 # --------------------------------------------------------------------------- #

@@ -21,6 +21,18 @@ abort the run.
 points and can be zero or negative. Every yield-derived quantity here uses
 *arithmetic* differences; taking a log return of a yield would be both
 dimensionally wrong and undefined at the zero bound.
+
+**Oil can go negative too, and did.** WTI front-month futures (``CL=F``)
+printed -$37.63 on 2020-04-20 — a real, storage-constraint-driven event, not
+a data error. A log return is undefined there, and a ``.where(price > 0)``
+mask (as used for the yields) would turn one bad day into a ~20-session hole
+in ``oil_vol_20``'s rolling window, which is worse: it discards the single
+most informative day in the whole oil series to protect a formula that
+should never have assumed positivity in the first place. ``oil_vol_20``
+therefore uses a **simple** (arithmetic) percentage return for oil, which is
+well-defined across a sign change and correctly reports an extreme realised
+volatility for the following month — exactly what a crisis-sensitive feature
+should do. See DECISIONS.md D-014.
 """
 
 from __future__ import annotations
@@ -143,8 +155,11 @@ def build_macro_features(
 
     oil = _need(src, "CL=F")
     if oil is not None:
-        pos = oil.where(oil > 0)
-        oil_ret = np.log(pos).diff()
+        # Simple, not log, return: WTI printed -$37.63 on 2020-04-20, and a
+        # log return is undefined for a non-positive price (see module
+        # docstring, D-014). pct_change() is defined across the sign change
+        # and reports the genuinely extreme realised volatility that follows.
+        oil_ret = oil.pct_change()
         out["oil_vol_20"] = oil_ret.rolling(vol_window).std() * np.sqrt(252)
     else:
         _log.info("CL=F absent; oil_vol_20 not produced (Universe B-only)")
