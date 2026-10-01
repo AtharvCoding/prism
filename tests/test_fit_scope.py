@@ -28,9 +28,16 @@ from prism.config import Config
 from prism.features.build import build_features, split_raw_frame
 from prism.features.scaling import CorrelationPruner, FeatureScaler, Winsoriser
 from prism.fitting import AlreadyFittedError, FittedArtifact, NotFittedError
+from prism.models.baselines.pca_encoder import PCAEncoder
 from prism.splits import build_split_plan, expanding_folds
 
-FITTED_CLASSES = [Winsoriser, FeatureScaler, CorrelationPruner]
+# PCAEncoder's generic FittedArtifact contract (fit-range recording, mutation
+# invariance, no implicit refit) is exercised here exactly like the scalers,
+# fit directly on Universe B's raw feature frame. Its DOMAIN-specific usage —
+# fit on flattened windows via prism.models.baselines.pca_encoder.flatten_windows
+# — is tested separately in tests/test_encoder.py, where the windowing
+# alignment itself is also under test.
+FITTED_CLASSES = [Winsoriser, FeatureScaler, CorrelationPruner, PCAEncoder]
 
 
 def _train_slice(frame: pd.DataFrame, cfg: Config) -> pd.DataFrame:
