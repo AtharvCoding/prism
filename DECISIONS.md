@@ -257,6 +257,109 @@ unimplemented, they are out of scope.
 
 ---
 
+## Step 1 — dataset expansion, universes, QA
+
+### D-012 · `^VIX3M` inception corrected from 2002-12-04 to 2006-07-17
+**Date:** 2026-10-01 · **Status:** implemented in `configs/data.yaml`
+
+The real snapshot (2026-10-01, hash `9de525958b07...`) showed Yahoo's
+`^VIX3M` series has no data before 2006-07-17 — four years later than the
+2002-12-04 placeholder configured in Step 0 from CBOE's own publication date.
+This is a vendor-coverage gap wider than the "a fund's first few trading
+days are sometimes missing" case `clean.py`'s `max(declared, observed)`
+availability logic exists for (see the docstring on
+`prism.data.clean.availability_mask`); 2002-12-04 was simply wrong for this
+vendor, so the config is corrected to match reality rather than left to be
+silently overridden every time.
+
+No feature coverage is affected: Universe B does not start until
+2007-04-04, which both dates precede.
+
+### D-013 · The snapshot's `MANIFEST.json` is committed; the data is not
+**Date:** 2026-10-01 · **Status:** implemented in `.gitignore`
+
+`data/raw/` holds the actual parquet files (prices, volume, macro levels).
+These are never committed — not because of size, but because of what §4.1
+says about them: adjusted prices are *restated* whenever a new dividend is
+paid, so **re-running the download script does not reproduce this snapshot**.
+A later run is a new, differently-hashed snapshot, not a reproduction of this
+one; committing a "reproduce by re-running" instruction here would be a
+promise the data layer cannot keep.
+
+What *is* committed is `data/raw/snapshot_20261001/MANIFEST.json` — the
+per-file SHA-256 hashes, ticker list, row counts, and the full `pip freeze`.
+This is the audit trail: anyone who obtains a copy of the actual parquet
+files (out-of-band — this machine, a shared drive, cloud storage, whatever
+the team sets up) can verify byte-for-byte that it is the same snapshot every
+result in this repository traces to, by matching those hashes. Without the
+real files, `make install && make test` still runs the full causality and
+fit-scope suite against the synthetic generator (spec intent: tests assert
+properties of the code, not of one researcher's local disk) and
+`scripts/01_build_features.py` simply cannot run until a snapshot — this one
+or a newly-taken one — exists locally.
+
+**Bug found while implementing this:** the original Step 0 `.gitignore` had
+`data/raw/` (the whole directory) ignored, with a nested `!data/**/MANIFEST.json`
+intended to re-admit the manifest. That negation silently did nothing — git
+does not descend into a directory it has already decided to ignore, so a
+nested un-ignore pattern inside one is dead code. Fixed with the standard
+three-step idiom: ignore the directory's *children* (`data/raw/*`), re-admit
+directories so git will look inside them (`!data/raw/*/`), ignore everything
+inside those directories (`data/raw/*/*`), then re-admit the one file that
+matters (`!data/raw/*/MANIFEST.json`). Verified with `git add -n data/`
+before trusting it.
+
+### D-014 · `oil_vol_20` uses a simple return, not a log return
+**Date:** 2026-10-01 · **Status:** implemented in `src/prism/features/macro.py`
+
+Running the real pipeline against the real 2026-10-01 snapshot produced a
+**hard** QA failure: `feature_nan_or_inf_after_warmup` on `oil_vol_20`, 21
+non-finite values. WTI front-month futures (`CL=F`) printed **-$37.63 on
+2020-04-20** — a real, storage-constraint-driven event during the COVID
+demand collapse, not a data error. `oil_vol_20` was computed as the rolling
+std of the oil log return, masked to `price > 0` the same way the yield
+features are (D-006). That mask turns the one negative day into NaN, and a
+20-day rolling std needs 20 consecutive finite inputs, so the NaN propagates
+into a ~20-session hole spanning the entire following month — discarding
+exactly the day, and the month after it, that a crisis-sensitive volatility
+feature exists to capture.
+
+**Decision.** `oil_vol_20` uses a **simple** (arithmetic, `pct_change()`)
+return for oil instead. Unlike a log return, a simple return is well-defined
+across a sign change — the -$37.63 → recovery transition — so the feature
+correctly reports an extreme realised volatility for the following month
+rather than a gap. No other series in the project needs this: equities never
+go negative (log returns stay), and yields use arithmetic differences already
+(D-006) for the same underlying reason this decision generalises from.
+
+**Verification:** `test_oil_vol_tolerates_a_negative_print` in
+`tests/test_features.py` constructs a synthetic path through zero and asserts
+`oil_vol_20` stays finite across it; `test_data.py`'s
+`test_each_hard_check_can_actually_fire` still provokes
+`feature_nan_or_inf_after_warmup` independently via an injected `np.inf`, so
+the hard check itself is still proven capable of firing.
+
+### D-015 · `DX-Y.NYB`'s off-NYSE-calendar sessions are dropped, not a bug
+**Date:** 2026-10-01 · **Status:** no-op, documented
+
+`clean.py` logged "115 dated rows fall outside the NYSE calendar and are
+dropped" while building the real pipeline. Investigated rather than ignored:
+110 of the 115 are `DX-Y.NYB` (the US Dollar Index), on dates that are NYSE
+holidays — Presidents' Day, July 4th, Thanksgiving, Christmas, New Year's.
+The dollar index trades on an FX-market calendar, which does not observe
+NYSE equity holidays, so Yahoo legitimately has a value for it on those days.
+The remaining 5 are `CL=F` (also on a different futures-market calendar) and
+2 are `^VIX`.
+
+This is `align_to_calendar`'s designed behaviour (spec §4.2: the project's one
+calendar is NYSE, full stop) working as intended, not a defect: admitting
+these rows would introduce dates into the panel that no equity in the
+universe ever traded on, which every downstream rolling-window and
+rebalance-schedule computation assumes cannot happen. No code change; logged
+here so the warning is not mistaken for noise on a future read of the logs.
+
+---
+
 ## Gate decisions (Tier 1)
 
 *Empty until Step 4a. Per §13.1, a component that does not beat its own

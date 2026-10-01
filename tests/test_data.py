@@ -161,13 +161,34 @@ def test_missing_snapshot_directs_the_user_to_the_script(tmp_repo: Config):
         load_snapshot(tmp_repo, date="2026-09-30")
 
 
-def test_snapshot_dir_requires_a_date(cfg: Config):
-    """``snapshot.date`` is null until a snapshot has been taken."""
-    assert cfg.data.snapshot.date is None, (
-        "snapshot.date should stay null until scripts/00_snapshot.py has run"
-    )
+def test_snapshot_dir_requires_a_date(tmp_repo: Config):
+    """Before any snapshot has been taken, ``snapshot_dir`` must refuse.
+
+    The real, committed config now has ``snapshot.date`` set (Step 1 took the
+    real snapshot on 2026-10-01), and ``tmp_repo`` copies that committed
+    config — so it is no longer in the pre-snapshot state either. Rather than
+    rely on either config's current date (which will keep drifting as the
+    project progresses), the pre-snapshot state is constructed directly with
+    an override.
+    """
+    pre_snapshot = load_config(root=tmp_repo.root, overrides={"data": {"snapshot": {"date": None}}})
     with pytest.raises(ValueError, match="no snapshot date"):
-        snapshot_dir(cfg)
+        snapshot_dir(pre_snapshot)
+
+
+def test_committed_snapshot_date_matches_a_real_snapshot_on_disk(cfg: Config):
+    """Once set, ``snapshot.date`` must name a snapshot that actually exists.
+
+    Step 1 commits ``snapshot.date`` to the config; this is the regression
+    guard against that date and the directory on disk drifting apart (e.g. a
+    snapshot re-taken under a new date without updating config, or vice
+    versa).
+    """
+    if cfg.data.snapshot.date is None:
+        pytest.skip("no snapshot has been taken yet")
+    path = snapshot_dir(cfg)
+    assert path.exists(), f"configs/data.yaml names snapshot {cfg.data.snapshot.date} but {path} is absent"
+    assert (path / "MANIFEST.json").exists()
 
 
 # --------------------------------------------------------------------------- #

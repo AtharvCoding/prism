@@ -19,7 +19,7 @@ what is built and how to run it.
 
 ---
 
-## Current status — Phase A, Step 0 complete
+## Current status — Phase A, Step 1 complete
 
 Only **Phase A** is in scope (spec §0.3). `src/prism/env/` and
 `src/prism/agents/` are docstring stubs; `gymnasium` and
@@ -28,8 +28,8 @@ time if either appears while `phase: A`.
 
 | Step | Scope | Status |
 |---|---|---|
-| **0** | Repo, config, snapshot, splits, **tests** | **complete — awaiting review** |
-| 1 | Dataset expansion: two universes, macro, cross-sectional, QA | not started |
+| 0 | Repo, config, snapshot, splits, **tests** | complete |
+| **1** | Dataset expansion: two universes, macro, cross-sectional, QA | **complete — awaiting review** |
 | 2 | HMM rebuild (fit on Universe A) | not started |
 | 3 | Encoder rebuild (fit on Universe A) | not started |
 | 3b | `state.py` — all nine variants | not started |
@@ -38,12 +38,22 @@ time if either appears while `phase: A`.
 | 4b–5 | Environment, SAC, Tier 2, holdout | **Phase B, deferred** |
 
 ```
-137 passed, 10 skipped, 25 xfailed
+173 passed, 10 skipped, 25 xfailed
 ```
 
 Skips are Phase B (`test_costs.py`, `test_env.py`). The xfails are the
 contracts steps 2, 3 and 3b must satisfy; they are `strict=True`, so when a
 step lands its tests turn XPASS — a failure — and the marker must be removed.
+
+**Step 1 deliverables:** the real snapshot (2026-10-01, 23 tickers,
+1990-01-02 .. 2026-09-30); both universes built, truncated to the non-holdout
+span, correlation-pruned (A: 130/131 columns kept, B: 184/185) and persisted
+to `data/processed/{A,B}_features.parquet`; `reports/tables/data_quality_{A,B}.md`
+— **0 hard failures on either universe**; causality and the strong-form
+Universe-A-never-touches-B-only-tickers proof re-verified against the real
+data (not just the synthetic fixture the automated suite runs on). Two real
+data issues were found and fixed along the way — see DECISIONS.md D-012 and
+D-014.
 
 ---
 
@@ -203,14 +213,17 @@ near zero.
 
 ## Reproducibility statement
 
-*Completed at Step 1, once a snapshot exists.*
-
-- **Snapshot hash:** *pending — run `make snapshot`*
+- **Snapshot:** `data/raw/snapshot_20261001/`, taken 2026-10-01. Hash
+  `9de525958b076f93d8355029c2f489f1aae9ac93428a26a23e4e2285f2d585f1`
+  (`MANIFEST.json`, committed; the parquet data is not — see DECISIONS.md
+  D-013 for why re-running the download does not reproduce it).
 - **Config hash:** recorded per run in `reports/logs/<run_id>.json`
 - **Git commit:** recorded per run, including whether the tree was dirty
 - **Seeds:** master `20260101`; runs `0..9` (`configs/data.yaml`)
 - **Python:** 3.11; every dependency pinned in `pyproject.toml`
-- **Command sequence:** `make snapshot && make phase-a`
+- **Command sequence:** `make snapshot && make phase-a` (the real snapshot
+  already exists at the date above; a fresh `make snapshot` takes a *new*,
+  differently-hashed one rather than reproducing this one)
 
 Determinism caveats are logged, never silently ignored: `PYTHONHASHSEED` must
 be set before interpreter start (the `Makefile` exports it), and cuDNN LSTM

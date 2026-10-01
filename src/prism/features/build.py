@@ -137,6 +137,14 @@ class FeatureSet:
     #: Sessions forward-filled per ticker, carried for QA.
     filled_sessions: pd.Series | None = None
     long_gaps: list[dict[str, object]] = field(default_factory=list)
+    #: Cleaned (calendar-aligned, capped-forward-filled) close prices for every
+    #: ticker in this universe, asset and macro alike. Carried so a QA pass or
+    #: a report can run against the exact panel the features were computed
+    #: from, rather than recomputing ``clean_panel`` a second time with
+    #: parameters that could silently drift out of sync.
+    close: pd.DataFrame | None = None
+    #: Cleaned volume, asset tickers only (macro series have none).
+    volume: pd.DataFrame | None = None
 
     @cached_property
     def schema_hash(self) -> str:
@@ -291,6 +299,8 @@ def build_features(
         available=cleaned.available,
         filled_sessions=cleaned.filled_sessions,
         long_gaps=cleaned.long_gaps,
+        close=close,
+        volume=volume,
     )
     assert_universe_isolation(result, cfg, universe)
     _log.info(
