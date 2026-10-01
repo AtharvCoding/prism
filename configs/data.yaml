@@ -4,7 +4,7 @@
 
 snapshot:
   dir: "data/raw"
-  date: null                  # set by scripts/00_snapshot.py, then frozen
+  date: "2026-10-01"          # frozen; hash 9de525958b07... — see MANIFEST.json
   allow_overwrite: false
   # Data is downloaded through the end of the holdout window so that the
   # snapshot never has to be refreshed (adjusted prices are restated as
@@ -29,8 +29,12 @@ universes:
     start: "2007-04-04"       # bound by HYG inception 2007-04-04
     inherits: A
     defensive: [SHY, IEF, TLT, GLD]
-    # ^VIX3M (inception 2002-12) postdates Universe A's 1999 start, so the VIX
-    # term structure is a B-only feature. Verify availability at snapshot time.
+    # ^VIX3M postdates Universe A's 1999 start, so the VIX term structure is a
+    # B-only feature regardless. Re-verified at the 2026-10-01 snapshot: Yahoo's
+    # ^VIX3M series only goes back to 2006-07-17, four years later than the
+    # 2002-12-04 CBOE-publication date originally configured here (see
+    # DECISIONS.md D-012). This still predates B's 2007-04-04 start, so it does
+    # not change what the feature covers.
     macro_extra: [HYG, LQD, "DX-Y.NYB", "CL=F", "^VIX3M"]
 
 # Assets that are allocatable by the Tier 1 allocator (and, in Phase B, the
@@ -64,7 +68,9 @@ inception:
   "^IRX": "1990-01-02"
   "DX-Y.NYB": "1990-01-02"
   "CL=F": "2000-08-23"
-  "^VIX3M": "2002-12-04"
+  # Corrected 2026-10-01 from an initial 2002-12-04 CBOE-publication estimate:
+  # Yahoo's ^VIX3M series has no data before this date (DECISIONS.md D-012).
+  "^VIX3M": "2006-07-17"
 
 excluded:
   XLRE: "inception 2015-10 — insufficient history"
