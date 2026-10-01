@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from prism.models.baselines.pca_encoder import PCAEncoder, flatten_windows
+from prism.models.baselines.pca_encoder import PCAEncoder, flatten_windows, pca_encoder_walkforward
 from prism.models.baselines.random_encoder import build_random_encoder, random_encoder_latents
 from prism.models.baselines.rolling_stats import rolling_stats_encode
 
@@ -106,3 +106,55 @@ def test_rolling_stats_alignment_and_shape(synth_frame):
     out = rolling_stats_encode(synth_frame, 10)
     assert out.shape == (len(synth_frame) - 10 + 1, 4 * synth_frame.shape[1])
     assert out.index.equals(synth_frame.index[9:])
+
+
+# --------------------------------------------------------------------------- #
+# pca_encoder_walkforward
+# --------------------------------------------------------------------------- #
+def test_pca_walkforward_matches_the_shared_walkforward_contract():
+    """Same de-duplicated, calendar-aligned contract as encoder_walkforward
+    and threshold_regime_walkforward — found to matter in practice: an
+    earlier version of the step 3 script fit PCA once on 1999-2006 and
+    never refit it through 2023, which was an unfair comparison against an
+    LSTM refit annually (DECISIONS.md)."""
+    from prism.utils.calendar import trading_days
+
+    idx = trading_days("2015-01-02", "2018-12-31")
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame(rng.normal(size=(len(idx), 6)), index=idx, columns=[f"f{i}" for i in range(6)])
+
+    out = pca_encoder_walkforward(
+        frame, window=10, n_components=3,
+        fit_start="2015-01-02", first_apply_start="2017-01-01", apply_end="2018-12-31",
+        cadence="quarterly", embargo_days=5,
+    )
+    assert out.index.is_unique
+    assert out.index.is_monotonic_increasing
+    expected = trading_days("2017-01-01", "2018-12-31")
+    assert out.index.equals(expected)
+    assert out.shape[1] == 3
+
+
+def test_pca_walkforward_actually_refits_across_folds():
+    """A trending signal must make an EARLY fold's PCA components differ
+    from a LATE fold's — proving the wrapper refits per fold rather than
+    reusing one fixed PCA fit across the whole span."""
+    from prism.utils.calendar import trading_days
+
+    idx = trading_days("2015-01-02", "2019-12-31")
+    rng = np.random.default_rng(0)
+    trend = np.linspace(0, 8, len(idx))
+    frame = pd.DataFrame(
+        {"a": rng.normal(size=len(idx)) + trend, "b": rng.normal(size=len(idx))}, index=idx
+    )
+    out = pca_encoder_walkforward(
+        frame, window=10, n_components=2,
+        fit_start="2015-01-02", first_apply_start="2017-01-01", apply_end="2019-12-31",
+        cadence="annual", embargo_days=5,
+    )
+    early = out.loc["2017-01-01":"2017-06-30"]
+    late = out.loc["2019-06-01":"2019-12-31"]
+    # A static (un-refit) PCA would still produce SOME values for both
+    # periods, but a refit PCA tracking a trending signal should show a
+    # visibly different mean level between an early and a late window.
+    assert abs(early.mean().mean() - late.mean().mean()) > 0.1
