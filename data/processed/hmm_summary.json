@@ -1,0 +1,47 @@
+{
+  "k_selection": {
+    "H1": {
+      "observations": [
+        "SPY_return_1d"
+      ],
+      "selected_k": 3,
+      "val_loglik": 816.5926775202643
+    },
+    "H2": {
+      "observations": [
+        "SPY_return_1d",
+        "vix_change",
+        "curve_change",
+        "avg_pairwise_corr_change"
+      ],
+      "selected_k": 4,
+      "val_loglik": 2350.0937694367167
+    }
+  },
+  "robustness_b_train_only": {
+    "H1": {
+      "selected_k": 3,
+      "val_loglik": 828.3618830114647
+    },
+    "H2": {
+      "selected_k": 8,
+      "val_loglik": 2498.5388146824225
+    }
+  },
+  "walkforward": {
+    "detection_search_margin_sessions": 60,
+    "drawdown_episodes_in_window": 19,
+    "flip_rate": 0.32896890343698854,
+    "hmm_beats_baseline_drawdown": false,
+    "hmm_beats_baseline_nber": false,
+    "k": 4,
+    "mean_entropy": 0.37433113878939067,
+    "n_folds": 204,
+    "n_posterior_rows": 4278,
+    "nber_episodes_in_window": 2,
+    "saturated": false,
+    "specification": "H2"
+  },
+  "winner": "H2",
+  "winner_k": 4
+}

@@ -19,7 +19,7 @@ what is built and how to run it.
 
 ---
 
-## Current status — Phase A, Step 1 complete
+## Current status — Phase A, Step 2 complete
 
 Only **Phase A** is in scope (spec §0.3). `src/prism/env/` and
 `src/prism/agents/` are docstring stubs; `gymnasium` and
@@ -29,8 +29,8 @@ time if either appears while `phase: A`.
 | Step | Scope | Status |
 |---|---|---|
 | 0 | Repo, config, snapshot, splits, **tests** | complete |
-| **1** | Dataset expansion: two universes, macro, cross-sectional, QA | **complete — awaiting review** |
-| 2 | HMM rebuild (fit on Universe A) | not started |
+| 1 | Dataset expansion: two universes, macro, cross-sectional, QA | complete |
+| **2** | HMM rebuild (fit on Universe A) | **complete — awaiting review** |
 | 3 | Encoder rebuild (fit on Universe A) | not started |
 | 3b | `state.py` — all nine variants | not started |
 | 4a | Tier 1 ablation + Phase A report | not started |
@@ -38,11 +38,12 @@ time if either appears while `phase: A`.
 | 4b–5 | Environment, SAC, Tier 2, holdout | **Phase B, deferred** |
 
 ```
-173 passed, 10 skipped, 25 xfailed
+208 passed, 10 skipped, 15 xfailed
 ```
 
-Skips are Phase B (`test_costs.py`, `test_env.py`). The xfails are the
-contracts steps 2, 3 and 3b must satisfy; they are `strict=True`, so when a
+Skips are Phase B (`test_costs.py`, `test_env.py`). The xfails are now
+exclusively steps 3 and 3b's contracts (encoder, state assembly); every HMM
+xfail from step 2 is a real, passing test. They are `strict=True`, so when a
 step lands its tests turn XPASS — a failure — and the marker must be removed.
 
 **Step 1 deliverables:** the real snapshot (2026-10-01, 23 tickers,
@@ -54,6 +55,30 @@ Universe-A-never-touches-B-only-tickers proof re-verified against the real
 data (not just the synthetic fixture the automated suite runs on). Two real
 data issues were found and fixed along the way — see DECISIONS.md D-012 and
 D-014.
+
+**Step 2 deliverables:** causal filtered posteriors (`filtered.py`, the
+forward recursion verified bit-exact against `predict_proba` on every
+truncated prefix); canonical relabelling (`labeling.py`); K-selection with
+20+ restarts per K, scored on 2018 causally through the full 1999-2018
+history (`fit.py`); a 204-fold monthly expanding walk-forward from 2007
+through 2023 (`walkforward.py`); state characterisation, NBER/drawdown
+detection, and a two-state VIX-threshold baseline (`evaluate.py`,
+`threshold_regime.py`) — all run against the real Step 1 features, not just
+synthetic fixtures. Winner: **H2 (multivariate), K=4**, val-loglik 2350.09
+vs H1's 816.59.
+
+Two things worth your attention before Step 3:
+
+- **The HMM does not beat the VIX-threshold baseline on detection lag**
+  (it's far more *precise* — 3.3% vs 38.6% false-alarm rate on NBER windows
+  — but not *faster*). Spec §8.7 explicitly frames this as a reportable
+  outcome, not a failure; the other half of that test (downstream probe
+  performance) is step 4a's job. See DECISIONS.md, "The HMM does not beat
+  the two-state threshold baseline on detection lag."
+- **H2's richer observation set produces short-duration "shock" states at
+  every K tested** (1-2 day durations, alongside persistent 10+ day
+  states) — a real property of the low-autocorrelation observations §8.2
+  requires, not a bug. See DECISIONS.md's write-up under the same date.
 
 ---
 

@@ -360,6 +360,165 @@ here so the warning is not mistaken for noise on a future read of the logs.
 
 ---
 
+## Step 2 — HMM rebuild
+
+### D-016 · `credit_proxy_change` dropped from H2 (not substituted)
+**Date:** 2026-10-01 · **Status:** implemented in `configs/hmm.yaml`
+
+Spec §8.2 lists `credit_proxy_change` among H2's five observations. Building
+the real observation frame surfaced a conflict Step 0's config didn't catch:
+`credit_proxy` derives from HYG/LQD (`log(HYG/LQD)`), and both are
+Universe-B-only tickers (HYG's inception, 2007-04-04, is Universe B's start
+date). The HMM fits on Universe A throughout — `fit_early` (§3.2) and every
+walk-forward refit after it, since a single `GaussianHMM`'s observation
+dimensionality is fixed for its whole life and cannot change mid-series when
+the chain crosses into 2007.
+
+**Alternatives considered.**
+- **Restrict the whole HMM to post-2007 dates**, where credit data exists.
+  Rejected: defeats §3.2's entire reason for fitting on Universe A — the
+  dot-com crisis (2000-02) is unrepresented in B, and losing it from the
+  HMM's training history is exactly the "one crisis in training" problem
+  (design gap D5) the two-universe design exists to fix.
+- **Violate universe isolation** and let the A-side HMM read HYG/LQD anyway.
+  Rejected outright: isolation is structural and tested (`build_features`
+  filters the raw panel to a universe's own tickers before any feature code
+  runs; `test_fit_scope.py` corrupts every B-only series and asserts
+  Universe A's output is unaffected). Making the HMM an exception would mean
+  "never touches a B-only ticker" is no longer actually true of Phase A.
+- **Substitute a Universe-A-available proxy for credit spread.** Unlike the
+  curve slope (D-004, 10y-3m for 10y-2y) or the VIX term structure (D-005,
+  made B-only), there is no equity-universe proxy for credit spread — it is
+  intrinsically a bond-market quantity.
+
+**Decision: drop it.** H2 is `[SPY_return_1d, vix_change, curve_change,
+avg_pairwise_corr_change]` — four observations, not five. All four are
+genuinely available across Universe A's full 1999-2006 `fit_early` window and
+every date thereafter, so the walk-forward chain never has to change
+dimensionality. `credit_proxy_change_20` remains a Universe-B feature and is
+available to the Tier 1 probes and the allocator from step 4a onward, where
+Universe B is the right universe to be in anyway.
+
+### D-017 · Detection search margin corrected from 20 to 60 sessions
+**Date:** 2026-10-01 · **Status:** implemented in `configs/hmm.yaml`, `evaluate.py`
+
+`detect_episodes`'s original default searched up to 20 sessions (~1 month)
+before an episode's dated start for the crisis signal crossing 0.5. Running
+the real evaluation showed this was a **ceiling, not a design choice**: both
+the HMM and the VIX-threshold baseline crossed 0.5 well before 20 sessions
+ahead of the 2007-12 GFC NBER date (re-checked at margins up to 250 sessions,
+where both detectors were still showing negative lag). A 20-session margin
+was silently reporting the search window's edge, not the true first
+crossing.
+
+**Decision:** raised to 60 sessions (~1 quarter) — long enough to capture
+genuine early signal without reaching so far back that "detection" becomes
+indistinguishable from ambient volatility. Even at 60, the baseline still
+hits the margin ceiling for the GFC and 2022 rate-shock episodes specifically
+(both preceded by months of gradually elevated VIX), which is itself worth
+reporting rather than hiding: for a slow build-up, "detection lag" measured
+this way partly reflects how long volatility was already elevated, not a
+crisp early-warning event. The evaluation report states the margin used.
+
+### Finding · H2's richer observation set finds short-duration "shock" states at every K
+**Date:** 2026-10-01 · **Phase A finding, not a defect**
+
+The real K-sweep for H2 (`SPY_return_1d, vix_change, curve_change,
+avg_pairwise_corr_change`) flagged **every** restart at **every** K in
+`2..8` as degenerate by the §8.4 duration criterion — including K=2, the
+simplest possible case. Investigated rather than dismissed: at K=2, EM
+consistently finds one persistent state (~9-day duration, ~85% of mass) and
+one short-lived state (~1.5-day duration, ~15% of mass); at the selected
+K=4, two persistent states (~10.5 and ~13-day durations, 91% combined) and
+two short-lived ones (~1.1 and ~1.6-day durations, 9% combined).
+
+This is a real, interpretable property of the data and the spec's own
+observation design, not a bug: §8.1/§8.2 deliberately require low-
+autocorrelation, conditionally-independent *change* observations (to avoid
+defect B3's volatility-ladder collapse). Changes are inherently closer to
+white noise than the levels they're computed from, so a single-day outlier
+— one sharp VIX jump, one wide correlation swing — genuinely looks like its
+own brief "shock" state to EM rather than blending into a persistent
+regime's tail. H1 (univariate, raw `SPY_return_1d`) shows far fewer
+degenerate restarts (1/20 at K=2, climbing with K) by contrast, which is
+itself informative: a single volatility-clustered return series retains more
+autocorrelation than a hand-picked basket of independent changes does.
+
+**Not resolved by relaxing the threshold.** Spec §8.4's criterion is stated
+as a firm rule, and loosening it until a result looks clean is exactly the
+"tune until the desired answer appears" failure mode §17.6 exists to
+prevent. The fallback behaviour already in `select_k` (use the overall-best
+restart, flagged `degenerate=True`) is what ran, and every K-sweep report
+states the fraction of degenerate restarts per K plainly rather than hiding
+it behind a single pass/fail bit. Worth revisiting at step 4a: does
+state 3 behave like a genuine "shock" the probes benefit from distinguishing
+from state 1's more persistent elevated-vol regime, or is it noise the
+model should have fewer states to avoid? The Tier 1 probe comparison is the
+honest way to answer that, not another look at the duration statistic alone.
+
+### Finding · The HMM does not beat the two-state threshold baseline on detection lag
+**Date:** 2026-10-01 · **Phase A finding — the §8.7 beats-baseline test, detection half**
+
+On the real 2026-10-01 snapshot, walk-forward H2 (K=4) does **not** win spec
+§8.7's beats-baseline comparison against a two-state VIX-quantile threshold,
+on either reference:
+
+- **NBER recessions** (2 in the walk-forward window — dot-com predates it,
+  the walk-forward only applies from 2007 onward): GFC lag HMM -51 vs
+  baseline -60 (baseline faster, both near the 60-session search ceiling);
+  COVID lag HMM +20 vs baseline -5 (baseline notably faster — the COVID
+  crash was violent and fast, and VIX itself reacted immediately, while the
+  HMM's filter needed three weeks of observations to become confident).
+- **Drawdown episodes** (≥20% off high; 19 found, though several are
+  overlapping sub-episodes of the same 2007-2011 structural downturn, not
+  19 independent crises — see the evaluation report): the baseline is
+  faster or tied on every episode.
+- False-alarm rate clearly favours the HMM (3.3% vs 38.6% on NBER windows;
+  2.6% vs 29.4% on drawdown windows) — the HMM is far more **precise** about
+  when it calls crisis, even though it is not **faster**.
+
+**This is the honest result, stated plainly per spec §0.4.4 and §15.1: a
+negative result is a publishable result.** It does not by itself mean the
+HMM adds nothing — §8.7 explicitly asks for detection lag **and** downstream
+probe performance, and the second half of that test is step 4a's Tier 1
+ablation (`configs/experiments/tier1_probes.yaml`'s `gates.hmm_adds_value`:
+`V3 > C2` and `V3 > C3`). A model that is slower to raise the alarm but far
+less prone to false alarms could still carry information a regression probe
+exploits better than a hard threshold does — or it could not. That is
+exactly what Tier 1 is for, and this finding is the reason to take its
+result seriously rather than assume the HMM wins by construction.
+
+### Finding · Walk-forward robustness refit on B-train-only selects a different K
+**Date:** 2026-10-01 · **§3.2 robustness check, §16 step 2 acceptance**
+
+Refitting H1 and H2 on Universe B's training window alone (2007-04 to
+2017-11, no dot-com crisis) and selecting K the same way:
+
+| Spec | A-fitted (`fit_early`, 1999-2006) | B-train-only (2007-2017) |
+|---|---|---|
+| H1 | K=3, val_ll=816.59 | K=3, val_ll=828.36 |
+| H2 | K=4, val_ll=2350.09 | K=8, val_ll=2498.54 |
+
+H1's selection is **stable** across the two fit windows (same K, comparable
+validation likelihood) — encouraging for the univariate specification.
+H2's is **not**: fit on 2007-2017 alone, the validation criterion keeps
+climbing all the way to the edge of the K-range searched (K=8), the exact
+"monotone to the edge of the sweep" symptom that made the reference
+project's K=5 unjustified (defect B2). Fit on 1999-2006 instead (which
+includes dot-com), H2 settles cleanly at K=4 with K=5-8 all degenerate.
+
+Plausible reading: the dot-com crisis in the A fit window gives H2 a second,
+structurally different crisis to generalise across, which regularises the
+state count; without it, EM has more freedom to carve the single GFC-plus-
+rate-shock history into additional states that don't generalise. This is
+exactly the crisis-diversity argument spec §3.2 makes for fitting the HMM on
+Universe A in the first place, now visible in a concrete number rather than
+asserted. The A-fitted H2 (K=4) is what the walk-forward and downstream
+steps use; the B-train-only sweep is reported here as the required
+robustness check, not adopted.
+
+---
+
 ## Gate decisions (Tier 1)
 
 *Empty until Step 4a. Per §13.1, a component that does not beat its own
