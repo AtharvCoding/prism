@@ -11,10 +11,20 @@ specifications:
   H1:                         # univariate — volatility structure must emerge
     observations: ["SPY_return_1d"]
   H2:                         # multivariate — changes only, all stationary
+    # Spec §8.2 lists credit_proxy_change among H2's observations. It cannot
+    # be used: credit_proxy derives from HYG/LQD, which are Universe-B-only
+    # tickers (§3.1), and the HMM fits on Universe A throughout — fit_early
+    # (§3.2) AND every walk-forward refit, since a single GaussianHMM's
+    # observation dimensionality cannot change mid-series. Including it would
+    # either violate Universe A's structural isolation (enforced and tested
+    # in build.py / test_fit_scope.py) or silently restrict the whole walk-
+    # forward chain to post-2007 dates, defeating §3.2's reason for fitting
+    # on A in the first place: the dot-com crisis. Dropped, not substituted —
+    # unlike the curve slope (D-004) or VIX3M (D-005), there is no Universe
+    # A-available proxy for credit spread. See DECISIONS.md D-016.
     observations:
       - "SPY_return_1d"
       - "vix_change"
-      - "credit_proxy_change"
       - "curve_change"
       - "avg_pairwise_corr_change"
 
@@ -43,6 +53,14 @@ walkforward:
   scheme: "expanding"         # spec §6.2 — never a fixed 5-year window
   refit_cadence: "monthly"
   carry_filter_state: true    # spec §8.6 — do not restart from startprob_
+  # K is already selected (fit.n_restarts >= 20 governs THAT sweep); §8.6
+  # does not itself require 20+ restarts per monthly refit, and an expanding
+  # window makes most folds' fit window hundreds to thousands of sessions
+  # long, which is far less prone to a bad EM local optimum than a short
+  # fixed window. A smaller, separate budget keeps ~200 monthly refits over
+  # 17 years computationally tractable (hours, not days) without weakening
+  # the one restart count the spec actually pins a number to.
+  n_restarts: 5
 
 robustness:
   # Spec §3.2 required check: refit on B's train window only and compare.
@@ -51,3 +69,14 @@ robustness:
 evaluation:
   drawdown_bear_threshold: 0.20   # SPY >= 20% off its high
   entropy_saturation_warn: 0.05
+  # How far before an episode's dated start to search for the crisis signal
+  # crossing threshold (spec §8.7 detection lag). The original default of 20
+  # sessions (~1 month) turned out to be a real ceiling, not a design choice:
+  # on the real 2026-10-01 data both the HMM and the VIX-threshold baseline
+  # crossed 0.5 well before 20 sessions ahead of both NBER episodes (as far
+  # back as ~190 sessions were checked), so a 20-session margin was silently
+  # reporting the search window's edge rather than the true first crossing.
+  # 60 sessions (~1 quarter) is long enough to capture genuine early signal
+  # without reaching so far back that "detection" becomes indistinguishable
+  # from ambient noise. See DECISIONS.md D-017.
+  detection_search_margin_sessions: 60

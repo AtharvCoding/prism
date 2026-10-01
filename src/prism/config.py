@@ -318,6 +318,7 @@ class HMMWalkforwardConfig(_Frozen):
     scheme: Literal["expanding"]
     refit_cadence: Literal["monthly", "quarterly", "annual"]
     carry_filter_state: bool
+    n_restarts: int = Field(ge=1)
 
     @field_validator("carry_filter_state")
     @classmethod
@@ -337,6 +338,7 @@ class HMMRobustnessConfig(_Frozen):
 class HMMEvaluationConfig(_Frozen):
     drawdown_bear_threshold: float = Field(gt=0, lt=1)
     entropy_saturation_warn: float = Field(gt=0)
+    detection_search_margin_sessions: int = Field(ge=1)
 
 
 class HMMConfig(_Frozen):
