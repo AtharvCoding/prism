@@ -8,7 +8,7 @@ inspection, fatal to the result.
 
 Four properties are checked:
 
-* the encoder's windowing contract (**step 3** — ``xfail`` until then),
+* the encoder's windowing contract (step 3 — real, as of this file),
 * the reward/return timing contract, on a synthetic path with a
   hand-computed answer,
 * feature and target indices are identical after alignment,
@@ -34,12 +34,6 @@ from prism.utils.calendar import rebalance_dates, trading_days
 # --------------------------------------------------------------------------- #
 # encoder windowing — step 3
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="spec §9.3 — encoder windowing is build step 3. When it lands this "
-    "turns XPASS (a failure) and the marker must be removed.",
-)
 def test_window_count_is_len_minus_window_plus_one(cfg: Config, features_a):
     """§7.3: ``len(windows) == len(features) - window + 1``.
 
@@ -55,11 +49,6 @@ def test_window_count_is_len_minus_window_plus_one(cfg: Config, features_a):
     assert len(windows) == len(frame) - window + 1
 
 
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="spec §9.3 — encoder windowing is build step 3.",
-)
 def test_row_dated_D_is_the_window_ending_at_D(cfg: Config, features_a):
     """§7.3: "Row dated ``D`` of the latent frame equals ``encoder(window whose
     last row is ``D``)``."
