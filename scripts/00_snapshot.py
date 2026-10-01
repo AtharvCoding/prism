@@ -73,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     seeds = seed_everything(cfg.data.seeds.master)
 
     tickers = cfg.data.tickers(args.universe)
-    snap_date = pd.Timestamp(args.date) if args.date else pd.Timestamp.utcnow().normalize()
+    snap_date = pd.Timestamp(args.date) if args.date else pd.Timestamp.now("UTC").tz_localize(None).normalize()
     destination = snapshot_dir(cfg, snap_date)
 
     log.info("universe %s: %d tickers", args.universe, len(tickers))

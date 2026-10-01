@@ -134,7 +134,7 @@ def create_snapshot(
         ``snapshot.allow_overwrite: true`` in config as well, so a single
         careless CLI flag cannot destroy a snapshot that results depend on.
     """
-    snap_date = pd.Timestamp(date) if date is not None else pd.Timestamp.utcnow().normalize()
+    snap_date = pd.Timestamp(date) if date is not None else pd.Timestamp.now("UTC").tz_localize(None).normalize()
     out_dir = snapshot_dir(cfg, snap_date)
 
     if out_dir.exists() and any(out_dir.iterdir()):

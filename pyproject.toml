@@ -45,14 +45,18 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra --strict-markers --strict-config"
 # No filterwarnings='ignore'. Spec §1: convergence and deprecation warnings
-# must stay visible. Errors are raised for the two classes that mask real bugs.
+# must stay visible. Errors are raised for the classes that mask real bugs.
 # pandas 3 makes copy-on-write the default, so SettingWithCopyWarning no
 # longer exists — the class of bug it warned about is now impossible rather
 # than merely noisy. FutureWarning is an error so a deprecation cannot ride
-# along unnoticed into a result.
+# along unnoticed into a result. Pandas4Warning is pandas's own forward
+# warning for its next major version (does not subclass FutureWarning, so it
+# needs listing separately) — caught here after scripts/00_snapshot.py used a
+# soon-to-be-removed Timestamp.utcnow() without the suite ever flagging it.
 filterwarnings = [
     "default",
     "error::FutureWarning",
+    "error::pandas.errors.Pandas4Warning",
 ]
 markers = [
     "slow: tests that take more than a few seconds",
