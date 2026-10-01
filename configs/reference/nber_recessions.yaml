@@ -1,0 +1,28 @@
+# NBER US business-cycle recession dates. Spec §8.7: "overlap with NBER
+# recession dates and with drawdown-based bear flags".
+#
+# These are published, static historical facts from the NBER Business Cycle
+# Dating Committee — not a time series that gets restated like a price, and
+# not a project split boundary either. They live in configs/ (not src/)
+# purely so the project's "no hard-coded date literals outside configs/"
+# rule (tests/test_splits.py's grep test) stays a clean, single-exception-
+# free rule: every date in the codebase comes from here.
+#
+# Only the three recessions that fall (even partially) within the project's
+# non-holdout span (1999-01-04 .. 2023-12-31) are listed; the dating
+# committee has not (as of this snapshot) called a recession for any later
+# date in range.
+#
+# peak:   the month the expansion ended (recession begins)
+# trough: the month the contraction ended (recession ends, expansion begins)
+# Dates are month-start; NBER dates recessions by month, not by day.
+recessions:
+  dot_com:
+    peak: "2001-03-01"
+    trough: "2001-11-01"
+  gfc:
+    peak: "2007-12-01"
+    trough: "2009-06-01"
+  covid:
+    peak: "2020-02-01"
+    trough: "2020-04-01"
