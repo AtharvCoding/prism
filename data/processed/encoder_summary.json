@@ -1,0 +1,177 @@
+{
+  "architecture_sweep": [
+    {
+      "config": {
+        "hidden_dim": 32,
+        "latent_dim": 8,
+        "variant": "DAE",
+        "window": 10
+      },
+      "mean_val_loss": 1.2663528323173523,
+      "std_val_loss": 0.014751732349395752
+    },
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 8,
+        "variant": "DAE",
+        "window": 10
+      },
+      "mean_val_loss": 1.1818119883537292,
+      "std_val_loss": 0.007954061031341553
+    },
+    {
+      "config": {
+        "hidden_dim": 32,
+        "latent_dim": 16,
+        "variant": "DAE",
+        "window": 10
+      },
+      "mean_val_loss": 1.2040292024612427,
+      "std_val_loss": 0.024812936782836914
+    },
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 16,
+        "variant": "DAE",
+        "window": 10
+      },
+      "mean_val_loss": 1.175430178642273,
+      "std_val_loss": 0.05919075012207031
+    },
+    {
+      "config": {
+        "hidden_dim": 32,
+        "latent_dim": 32,
+        "variant": "DAE",
+        "window": 10
+      },
+      "mean_val_loss": 1.205908477306366,
+      "std_val_loss": 0.039466679096221924
+    },
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 32,
+        "variant": "DAE",
+        "window": 10
+      },
+      "mean_val_loss": 1.1030384302139282,
+      "std_val_loss": 0.01087331771850586
+    }
+  ],
+  "robustness_b_train_only": {
+    "losses": [
+      0.8340808153152466,
+      0.8196657299995422
+    ],
+    "mean_val_loss": 0.8268732726573944
+  },
+  "selected": {
+    "hidden_dim": 64,
+    "latent_dim": 32,
+    "variant": "DAE",
+    "window": 10
+  },
+  "variant_sweep": [
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 16,
+        "variant": "AE",
+        "window": 10
+      },
+      "mean_val_loss": 1.1893940925598145,
+      "std_val_loss": 0.029017481545393107
+    },
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 16,
+        "variant": "DAE",
+        "window": 10
+      },
+      "mean_val_loss": 1.1611957788467406,
+      "std_val_loss": 0.04160726451966526
+    },
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 16,
+        "variant": "VAE",
+        "window": 10
+      },
+      "mean_val_loss": 1.3219464540481567,
+      "std_val_loss": 0.02440082441373197
+    },
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 16,
+        "variant": "PRED",
+        "window": 10
+      },
+      "mean_val_loss": 1.2544889450073242,
+      "std_val_loss": 0.023271102163966804
+    }
+  ],
+  "walkforward": {
+    "dead_units": 0,
+    "hidden_dim": 64,
+    "latent_dim": 32,
+    "latent_drift_n_drifted": 31,
+    "lstm_beats_pca": false,
+    "lstm_beats_random": false,
+    "lstm_r2": -0.04880962359756813,
+    "n_folds": 17,
+    "n_latent_rows": 4278,
+    "pca_fit_scheme": "walkforward (corrected; was static-fit-on-1999-2006)",
+    "pca_r2": 0.17855881253784422,
+    "random_r2": 0.2138703618370481,
+    "variant": "DAE",
+    "window": 10
+  },
+  "window_sweep": [
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 16,
+        "variant": "AE",
+        "window": 10
+      },
+      "mean_val_loss": 1.0983048677444458,
+      "std_val_loss": 0.008417725563049316
+    },
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 16,
+        "variant": "AE",
+        "window": 20
+      },
+      "mean_val_loss": 1.2240307927131653,
+      "std_val_loss": 0.013353168964385986
+    },
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 16,
+        "variant": "AE",
+        "window": 30
+      },
+      "mean_val_loss": 1.301222562789917,
+      "std_val_loss": 0.011547446250915527
+    },
+    {
+      "config": {
+        "hidden_dim": 64,
+        "latent_dim": 16,
+        "variant": "AE",
+        "window": 60
+      },
+      "mean_val_loss": 1.3201997876167297,
+      "std_val_loss": 0.01477581262588501
+    }
+  ]
+}

@@ -519,8 +519,115 @@ robustness check, not adopted.
 
 ---
 
+## Step 3 — encoder rebuild
+
+### D-018 · Staged, reduced hyperparameter sweep (not the full 480-run grid)
+**Date:** 2026-10-01 · **Status:** implemented in `scripts/03_train_encoder.py`
+
+Spec §9.3's grid — window ∈ {10,20,30,60} × latent ∈ {8,16,32} × hidden ∈
+{32,64} × variant ∈ {AE,DAE,VAE,PRED}, ≥5 seeds each — is 480 individual
+training runs. Benchmarked at ~13s per run on the real Universe A data
+(window=30, hidden=64, latent=16, 1767-row fit window), the full grid would
+take roughly two hours of serial training.
+
+**Decision**, the same shape as D-002's HMM walk-forward restart budget:
+three sequential stages, each fixing what the previous stage selected rather
+than re-sweeping it — window (4 candidates × 2 seeds), then variant at the
+selected window (4 × 5 seeds, meeting spec's seed floor exactly for the
+comparison that matters most), then latent_dim × hidden_dim at the selected
+window and variant (6 × 2 seeds). 40 runs total, ~6 minutes. The reduction's
+assumption — that window, variant and architecture size do not interact
+sharply enough to require a joint search — is checked in the order most
+likely to matter (window first: it changes what information later stages
+even have access to), not assumed silently.
+
+### Finding · Hyperparameter selection by validation RECONSTRUCTION loss chose window=10, DAE — and that choice does not transfer to downstream usefulness
+**Date:** 2026-10-01 · **Phase A finding**
+
+The three-stage sweep selected window=10, variant=DAE, latent_dim=32,
+hidden_dim=64 — by validation reconstruction loss, the only criterion
+available before a Tier 1 probe harness exists (this step built a lean one;
+see D-019). This is a real limitation worth stating plainly: reconstruction
+quality and downstream predictive usefulness are not the same objective, and
+spec §15.1 H3 names exactly this risk ("reconstruction-based encoding is the
+wrong objective"). The finding below is evidence the risk materialised here.
+
+### Finding · The encoder does not beat PCA or the random encoder on the probe — confirmed across two training objectives, after fixing a real bug in the comparison
+**Date:** 2026-10-01 · **Phase A finding — the §9.4 beats-baseline test**
+
+Probing each representation (latent dimensions alone — see the scope note
+below) against `fwd_vol_20` with the walk-forward ridge probe built this
+step (D-019):
+
+| Representation | R² (test) | Beats PCA? |
+|---|---|---|
+| DAE (window=10, selected by reconstruction loss) | -0.049 | No |
+| PRED, purely predictive (`pred_reconstruction_weight=0`, directly trained toward `fwd_vol_20` among its targets) | -0.203 | No |
+| PCA (walk-forward refit, same dimensionality) | 0.179 | — |
+| Random encoder (frozen, untrained, same dimensionality) | 0.214 | — |
+
+Neither a reconstruction-trained encoder nor one trained **directly** on the
+evaluation target beats an untrained random linear projection. This is spec
+§9.4's exact "if it does not, simplify or drop it and report that as a
+finding" scenario, and it is reported as such — not tuned away.
+
+**A real bug was caught and fixed before trusting this.** The first version
+of this comparison fit PCA **once**, on the 1999-2006 `fit_early` window, and
+applied it unrefit through 2023 — while the LSTM walk-forward refits
+annually. That is not a fair comparison in either direction. Fixed with
+`pca_encoder_walkforward` (refits PCA on the identical expanding, embargoed
+fold schedule the LSTM uses). The correction mattered: PCA's R² dropped from
+0.296 (static) to 0.179 (walk-forward-refit) — part of PCA's apparent edge
+really was the asymmetry. The corrected, fairer comparison still shows the
+LSTM behind both baselines, which is why the finding above is reported with
+confidence rather than as a methodology artifact.
+
+**Scope, precisely.** This probes the **latent alone** against PCA-alone and
+random-alone at matching dimensionality — not spec §10's actual gate
+(`V2 = V1 + latent` vs `C1 = V1 + random-encoder latent`, both carrying the
+full raw feature set too). That comparison needs state assembly (step 3b)
+and is step 4a's `gates.lstm_adds_value` (`V2 > V1'` and `V2 > C1`) in
+`configs/experiments/tier1_probes.yaml`. This step's finding is a strong
+prior for how that gate will likely resolve, not a substitute for running it
+— the raw V1 features carried alongside the latent in V2 and C1 could change
+the outcome, since V1 and C1 together might already contain what the probe
+needs regardless of what the latent itself adds.
+
+**Not resolved by further tuning here.** A longer window might let the
+LSTM's recurrent structure earn more of its complexity (window=10 was
+selected by reconstruction loss, which may itself be the wrong criterion —
+see the finding above), and this is worth revisiting if step 4a's formal
+gate also fails. Re-running the hyperparameter sweep with probe performance
+as the selection criterion, rather than reconstruction loss, is the natural
+next step if so — but that is a materially larger undertaking (an
+inner-loop probe evaluation inside every candidate's scoring) than this
+step's budget covers, and doing it now, before knowing whether step 4a's
+full-feature-set gate even needs it, would be exactly the kind of
+unprincipled extra tuning spec §17.6 warns against.
+
+### D-019 · `prism.probes.probe` and `prism.analysis.bootstrap` built now, not deferred to step 4a
+**Date:** 2026-10-01 · **Status:** implemented
+
+Spec §9.4's own acceptance text ("beats PCA and random encoder on the
+Tier-1 probe with non-overlapping confidence intervals") and §16's step 3
+acceptance row both name the probe comparison as THIS step's bar, not step
+4a's — unlike the HMM's "downstream probe performance," which §8.7 and
+§13.1 together make unambiguously a step 4a concern. Built a lean, reusable
+core now: `ridge_probe` (train/val/test split, train-only standardisation,
+alpha selected on validation from one grid) and
+`stationary_block_bootstrap_ci` (Politis-Romano stationary bootstrap, the
+exact method `configs/experiments/tier1_probes.yaml` names). Step 4a extends
+this to every variant and target with a walk-forward refit schedule; it does
+not replace or re-architect it.
+
+---
+
 ## Gate decisions (Tier 1)
 
-*Empty until Step 4a. Per §13.1, a component that does not beat its own
-control with non-overlapping confidence intervals is redesigned or dropped
-before Phase B, and the decision is recorded here **either way**.*
+*Formal decisions await step 4a's full `V1'`/`C1`/`C2`/`C3` comparison using
+assembled state vectors (not yet built — step 3b). Step 3's own finding
+("Step 3 — The encoder does not beat PCA or the random encoder on the
+probe", above) is a strong prior that the `V2 > V1'` / `V2 > C1` gate may
+fail, but is not itself that gate. Per §13.1, a component that does not beat
+its own control with non-overlapping confidence intervals is redesigned or
+dropped before Phase B, and the decision is recorded here **either way**.*

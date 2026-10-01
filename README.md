@@ -19,7 +19,7 @@ what is built and how to run it.
 
 ---
 
-## Current status — Phase A, Step 2 complete
+## Current status — Phase A, Step 3 complete
 
 Only **Phase A** is in scope (spec §0.3). `src/prism/env/` and
 `src/prism/agents/` are docstring stubs; `gymnasium` and
@@ -30,21 +30,21 @@ time if either appears while `phase: A`.
 |---|---|---|
 | 0 | Repo, config, snapshot, splits, **tests** | complete |
 | 1 | Dataset expansion: two universes, macro, cross-sectional, QA | complete |
-| **2** | HMM rebuild (fit on Universe A) | **complete — awaiting review** |
-| 3 | Encoder rebuild (fit on Universe A) | not started |
+| 2 | HMM rebuild (fit on Universe A) | complete |
+| **3** | Encoder rebuild (fit on Universe A) | **complete — awaiting review** |
 | 3b | `state.py` — all nine variants | not started |
 | 4a | Tier 1 ablation + Phase A report | not started |
 | — | **Phase A ends — review** | — |
 | 4b–5 | Environment, SAC, Tier 2, holdout | **Phase B, deferred** |
 
 ```
-208 passed, 10 skipped, 15 xfailed
+267 passed, 10 skipped, 7 xfailed
 ```
 
 Skips are Phase B (`test_costs.py`, `test_env.py`). The xfails are now
-exclusively steps 3 and 3b's contracts (encoder, state assembly); every HMM
-xfail from step 2 is a real, passing test. They are `strict=True`, so when a
-step lands its tests turn XPASS — a failure — and the marker must be removed.
+exclusively step 3b's contracts (state assembly); every HMM and encoder
+xfail is a real, passing test. They are `strict=True`, so when a step lands
+its tests turn XPASS — a failure — and the marker must be removed.
 
 **Step 1 deliverables:** the real snapshot (2026-10-01, 23 tickers,
 1990-01-02 .. 2026-09-30); both universes built, truncated to the non-holdout
@@ -79,6 +79,35 @@ Two things worth your attention before Step 3:
   every K tested** (1-2 day durations, alongside persistent 10+ day
   states) — a real property of the low-autocorrelation observations §8.2
   requires, not a bug. See DECISIONS.md's write-up under the same date.
+
+**Step 3 deliverables:** windowing that fixes defect C1 by construction
+(`dataset.py`, built on a stride-tricks view — no copy, no off-by-one);
+AE/DAE/VAE/PRED architectures with no ReLU on the latent (`models.py`);
+validation-driven training with deep-copied best-epoch weights
+(`train.py`); an annual expanding walk-forward (`walkforward.py`); the
+three mandatory baselines (`pca_encoder.py`, `random_encoder.py`,
+`rolling_stats.py`); and — built now rather than deferred, because spec's
+own step 3 acceptance bar needs it — a lean, reusable walk-forward ridge
+probe and stationary block bootstrap (`probes/probe.py`,
+`analysis/bootstrap.py`) that step 4a's full Tier 1 ablation will extend,
+not re-architect. Selected on the real data: **DAE, window=10, latent=32,
+hidden=64**.
+
+One thing worth your close attention before Step 3b:
+
+- **The encoder does not beat PCA or an untrained random projection on the
+  probe** — confirmed across two different training objectives
+  (reconstruction and a purely-predictive variant trained directly on the
+  evaluation target), after catching and fixing a real bug in my own
+  comparison (PCA was being fit once on 1999-2006 and left unrefit through
+  2023, while the LSTM refit annually — fixed with a proper walk-forward
+  PCA baseline, which *reduced* PCA's apparent edge but did not reverse the
+  finding). This is spec §9.4's exact "if it does not, simplify or drop it
+  and report that as a finding" scenario, scoped precisely in DECISIONS.md:
+  it tests the latent *alone*, not step 4a's actual `V2 > C1` gate (which
+  carries the full raw feature set alongside the latent, not yet buildable
+  without state assembly). A strong prior that gate may fail, not a
+  substitute for running it.
 
 ---
 
