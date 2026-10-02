@@ -18,7 +18,10 @@ probe:
   regression: "ridge"
   classification: "logistic"
   # Same grid for every variant — unequal tuning invalidates the ablation.
-  alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  # Eleven decades, fixed by reports/tables/preregistration.md (§5). The earlier
+  # grid stopped at 1e3, too weak for V1' (2024 standardised columns against a
+  # few thousand training rows). Not to be widened after test-split output exists.
+  alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0, 10000000.0, 100000000.0]
   tune_on: "validation_folds"
 
 allocator:
