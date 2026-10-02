@@ -555,6 +555,8 @@ Build at least two specifications and compare:
 
 Optionally cross-check against `statsmodels` `MarkovRegression`/`MarkovAutoregression` as an independent implementation.
 
+**Resolved (Step 2; see DECISIONS.md D-024, D-025).** "Compare" above must NOT mean comparing raw validation log-likelihood across specs of different observation dimensionality: a multivariate Gaussian density (H2, 4 dims) sits on a structurally different scale than a univariate one (H1, 1 dim) on the same data, so the higher-dimensional spec wins any such comparison regardless of regime quality. The production pipeline therefore does not auto-select a spec at all — `configs/hmm.yaml`'s `hmm.fit.specification` pins a single specification as a human decision, and K-selection runs only within it. The pinned choice is **H1 (returns only), K=2**: H2 produced a degenerate best restart (expected state duration ≈ 1-2 days against the 5-day floor, every state, every K in its sweep) and was dropped on that basis alone, independent of the dimensionality problem; within H1, K=3 edged out K=2 on raw validation log-likelihood by less than 2 points — within noise at this sample size — and K=2 wins the tie on BIC (and is the only K in either spec's sweep with a non-degenerate best restart at a long enough dwell time to look like a regime rather than daily flicker).
+
 ### 8.3 Causal (filtered) posteriors — mandatory
 
 `hmmlearn`'s `predict_proba` runs forward-backward and returns **smoothed** posteriors `P(s_t | x_1..x_T)`, which use the future. On a synthetic two-regime series, smoothed and filtered posteriors differed by > 0.25 on ~12% of days — a material contamination, not a rounding issue.

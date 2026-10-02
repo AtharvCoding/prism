@@ -255,11 +255,6 @@ def test_a_shifted_target_is_detectable(cfg: Config, raw_b: pd.DataFrame):
 # --------------------------------------------------------------------------- #
 # state index — step 3b
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    raises=(NotImplementedError, ImportError, AttributeError),
-    strict=True,
-    reason="spec §10 — state assembly is build step 3b.",
-)
 def test_state_index_matches_feature_and_target_index(cfg: Config, features_b):
     """§7.3: the state index must equal the feature and target index."""
     from prism.state import build_state  # noqa: PLC0415

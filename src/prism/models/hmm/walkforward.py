@@ -86,6 +86,13 @@ class WalkforwardResult:
     folds: list[WalkforwardFoldOutput]
     posteriors: pd.DataFrame
     per_step_loglik: pd.Series
+    #: Spec §10's O1 (the leaky oracle) only — each fold's SMOOTHED
+    #: (forward-backward, ``predict_proba``) posteriors, apply-window rows
+    #: kept. ``None`` unless ``also_smoothed=True`` was passed. Leaky *within*
+    #: a fold (it sees that fold's own apply-window future), never across
+    #: folds. Never fed into anything but the O1 diagnostic — see
+    #: :mod:`prism.state`.
+    smoothed_posteriors: pd.DataFrame | None = None
 
     def as_table(self) -> list[dict[str, Any]]:
         return [f.as_dict() for f in self.folds]
@@ -107,6 +114,8 @@ def hmm_walkforward(
     seed_base: int,
     min_expected_duration_days: float = 5.0,
     min_unconditional_prob: float = 0.02,
+    also_smoothed: bool = False,
+    max_degenerate_fold_fraction: float = 0.10,
     exchange: str = "NYSE",
 ) -> WalkforwardResult:
     """Expanding-window HMM refit. Spec §8.6.
@@ -123,6 +132,14 @@ def hmm_walkforward(
         separate, one-time step; this function does not re-select K).
     fit_start, first_apply_start, apply_end
         Passed straight to :func:`prism.splits.expanding_folds`.
+    max_degenerate_fold_fraction
+        Spec §8.6 amendment, D-026: raise once more than this fraction of
+        folds come back with EVERY restart degenerate. A handful of such
+        folds is tolerable noise; a spec/K pair that cannot produce a single
+        clean restart across a large share of the walk-forward is not
+        producing usable regimes often enough to trust, and the posteriors
+        this function would otherwise still happily return are not a safe
+        basis for anything downstream.
 
     Each fold: fit a new :class:`FeatureScaler` on the fold's own fit window;
     fit ``n_restarts`` Gaussian HMMs on the scaled fit window and keep the
@@ -146,7 +163,9 @@ def hmm_walkforward(
     fold_outputs: list[WalkforwardFoldOutput] = []
     posterior_chunks: list[pd.DataFrame] = []
     loglik_chunks: list[pd.Series] = []
+    smoothed_chunks: list[pd.DataFrame] = []
     columns = [f"state_{i}" for i in range(k)]
+    n_all_degenerate_folds = 0
 
     for fold in folds:
         fit_raw = observations.loc[fold.fit_start : fold.fit_end]
@@ -179,6 +198,7 @@ def hmm_walkforward(
         pool = non_degenerate if non_degenerate else restarts
         best = max(pool, key=lambda r: r.train_loglik)
         if not non_degenerate:
+            n_all_degenerate_folds += 1
             _log.warning(
                 "fold %d (%s..%s): every restart degenerate; using the least-bad",
                 fold.index, fold.apply_start.date(), fold.apply_end.date(),
@@ -205,6 +225,18 @@ def hmm_walkforward(
         )
         loglik_chunks.append(pd.Series(apply_loglik, index=apply_scaled.index, name="loglik"))
 
+        if also_smoothed:
+            # Spec §10 O1: the deliberately leaky oracle. `predict_proba` is
+            # hmmlearn's own forward-BACKWARD (smoothed) posterior — exactly
+            # what defect B1 used and §8.3 forbids for V3 — reused here on
+            # purpose, on the SAME already-fitted fold model, so no second fit
+            # is needed. Leaky only within this fold's fit+apply window, never
+            # across folds (a bound, not the maximally leaky full-sample case).
+            smoothed_full = relabeled.predict_proba(combined.to_numpy(dtype="float64"))
+            smoothed_chunks.append(
+                pd.DataFrame(smoothed_full[-n_apply:], index=apply_scaled.index, columns=columns)
+            )
+
         fold_outputs.append(
             WalkforwardFoldOutput(
                 fold=fold,
@@ -225,6 +257,17 @@ def hmm_walkforward(
             fold_outputs[-1].n_restarts_degenerate, len(restarts),
         )
 
+    degenerate_fold_fraction = n_all_degenerate_folds / len(folds)
+    if degenerate_fold_fraction > max_degenerate_fold_fraction:
+        raise RuntimeError(
+            f"{n_all_degenerate_folds}/{len(folds)} folds ({degenerate_fold_fraction:.1%}) "
+            f"had every restart degenerate, exceeding max_degenerate_fold_fraction="
+            f"{max_degenerate_fold_fraction:.0%} (spec §8.6 amendment, D-026). This spec/K "
+            "is not producing usable regimes across a meaningful share of the walk-forward "
+            "— redesign or drop it (spec §8.4/§13.1) rather than trusting the posteriors "
+            "this run would otherwise return."
+        )
+
     posteriors = pd.concat(posterior_chunks).sort_index()
     per_step_loglik = pd.concat(loglik_chunks).sort_index()
 
@@ -238,6 +281,15 @@ def hmm_walkforward(
     if not posteriors.index.is_monotonic_increasing:
         raise AssertionError("walk-forward posteriors are not calendar-ordered")
 
+    smoothed_posteriors: pd.DataFrame | None = None
+    if also_smoothed:
+        smoothed_posteriors = pd.concat(smoothed_chunks).sort_index()
+        if not smoothed_posteriors.index.equals(posteriors.index):
+            raise AssertionError("smoothed and filtered posteriors disagree on their index")
+
     return WalkforwardResult(
-        folds=fold_outputs, posteriors=posteriors, per_step_loglik=per_step_loglik
+        folds=fold_outputs,
+        posteriors=posteriors,
+        per_step_loglik=per_step_loglik,
+        smoothed_posteriors=smoothed_posteriors,
     )

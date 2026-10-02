@@ -10,7 +10,14 @@ observation_blocklist_substrings: ["vol_20", "vol_60", "mom_20", "mom_60", "corr
 specifications:
   H1:                         # univariate — volatility structure must emerge
     observations: ["SPY_return_1d"]
-  H2:                         # multivariate — changes only, all stationary
+  H2:                         # multivariate — changes only, all stationary.
+    # RETAINED FOR THE HISTORICAL K-SWEEP RECORD ONLY (D-024): H2 is no
+    # longer selectable by `fit.specification` and is not walk-forwarded.
+    # Every K in its own sweep produced a degenerate best restart (expected
+    # state duration ~1-2 days against a 5-day floor), and even setting that
+    # aside, its val_loglik was never comparable to H1's (different
+    # observation dimensionality). See DECISIONS.md D-024.
+    #
     # Spec §8.2 lists credit_proxy_change among H2's observations. It cannot
     # be used: credit_proxy derives from HYG/LQD, which are Universe-B-only
     # tickers (§3.1), and the HMM fits on Universe A throughout — fit_early
@@ -30,6 +37,14 @@ specifications:
 
 fit:
   universe: A                 # spec §3.2
+  # Spec §8.2 amendment, D-024: comparing val_loglik across H1 (1 observation
+  # dim) and H2 (4 dims) is invalid — a multivariate Gaussian density sits on
+  # a structurally different scale than a univariate one on the same data, so
+  # the higher-dimensional spec wins regardless of regime quality. There is
+  # therefore no automatic cross-spec selection: this pins the one spec that
+  # is actually fit and walk-forwarded. H2 is kept under `specifications`
+  # below for the historical K-sweep record only, not for comparison.
+  specification: "H1"
   covariance_type: "full"
   k_range: [2, 3, 4, 5, 6, 7, 8]
   n_restarts: 20              # spec §8.4 — report the whole LL distribution
@@ -43,6 +58,10 @@ selection:
   # Degenerate-solution rejection (spec §8.4).
   min_expected_duration_days: 5
   min_unconditional_prob: 0.02
+  # D-025: a K whose best restart is degenerate is discarded outright, not
+  # merely deprioritised; among the survivors, a val_loglik gap smaller than
+  # this many points from the best is a near-tie, broken by BIC.
+  near_tie_margin: 2.0
 
 labeling:
   # Spec §8.5. Names are derived from position after sorting, NEVER hard-coded.
@@ -61,6 +80,11 @@ walkforward:
   # 17 years computationally tractable (hours, not days) without weakening
   # the one restart count the spec actually pins a number to.
   n_restarts: 5
+  # D-026: if more than this fraction of walk-forward folds come back with
+  # EVERY restart degenerate, that spec/K pair is not producing usable
+  # regimes often enough to trust — raise rather than silently average over
+  # it the way the posterior series otherwise would.
+  max_degenerate_fold_fraction: 0.10
 
 robustness:
   # Spec §3.2 required check: refit on B's train window only and compare.

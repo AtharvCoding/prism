@@ -288,6 +288,13 @@ class HMMSpecification(_Frozen):
 
 class HMMFitConfig(_Frozen):
     universe: str
+    #: The single specification actually fit and walk-forwarded (spec §8.2
+    #: amendment). Comparing val-loglik across specs of different observation
+    #: dimensionality is invalid (a multivariate Gaussian density sits on a
+    #: different scale than a univariate one on the same data), so there is
+    #: no automatic cross-spec winner — this is a pinned, human decision.
+    #: See DECISIONS.md D-024.
+    specification: str
     covariance_type: Literal["full", "diag", "tied", "spherical"]
     k_range: list[int] = Field(min_length=1)
     n_restarts: int = Field(ge=1)
@@ -307,6 +314,12 @@ class HMMSelectionConfig(_Frozen):
     secondary: list[str]
     min_expected_duration_days: float = Field(gt=0)
     min_unconditional_prob: float = Field(gt=0, lt=1)
+    #: Spec §8.4 amendment, D-025: a K whose best restart is degenerate is
+    #: discarded outright, before any comparison. Among the surviving,
+    #: non-degenerate K values, a val_loglik difference from the best smaller
+    #: than this margin is a near-tie, broken by BIC (lower is better) rather
+    #: than by the noisier raw log-likelihood.
+    near_tie_margin: float = Field(gt=0)
 
 
 class HMMLabelingConfig(_Frozen):
@@ -319,6 +332,11 @@ class HMMWalkforwardConfig(_Frozen):
     refit_cadence: Literal["monthly", "quarterly", "annual"]
     carry_filter_state: bool
     n_restarts: int = Field(ge=1)
+    #: Spec §8.6 amendment, D-026: a spec/K pair that cannot produce a clean
+    #: restart on more than this fraction of walk-forward folds is not
+    #: producing usable regimes often enough to trust — raise rather than
+    #: silently averaging over it.
+    max_degenerate_fold_fraction: float = Field(gt=0, le=1)
 
     @field_validator("carry_filter_state")
     @classmethod
@@ -374,6 +392,11 @@ class HMMConfig(_Frozen):
                         )
         if any(k < 2 for k in self.fit.k_range):
             raise ValueError("k_range must contain only K >= 2")
+        if self.fit.specification not in self.specifications:
+            raise ValueError(
+                f"hmm.fit.specification={self.fit.specification!r} is not a declared "
+                f"specification; known: {sorted(self.specifications)}"
+            )
         return self
 
 

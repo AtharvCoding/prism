@@ -1,24 +1,43 @@
 #!/usr/bin/env python
 """Fit the HMM on Universe A, select K, walk-forward, evaluate. Spec §8, §16 step 2.
 
-    python scripts/02_fit_hmm.py                  # H1 + H2 K-selection, pick the winner,
-                                                    # full monthly walk-forward, evaluation
-    python scripts/02_fit_hmm.py --skip-walkforward  # K-selection and reporting only
+    python scripts/02_fit_hmm.py                     # K-selection on the pinned spec,
+                                                       # full monthly walk-forward, evaluation
+    python scripts/02_fit_hmm.py --skip-walkforward   # K-selection and reporting only
 
 Reads ``data/processed/{A,B}_features.parquet`` (Step 1's output; never the
-network). For each specification (H1, H2):
+network). Operates on a single, config-pinned specification
+(``cfg.hmm.fit.specification``, currently H1 — returns only):
 
-1. Builds the observation frame from Universe A's own columns (H2 drops
-   ``credit_proxy_change`` — see DECISIONS.md D-016; it is a Universe-B-only
-   quantity and the HMM fits on Universe A throughout).
+1. Builds the observation frame from Universe A's own columns.
 2. Sweeps ``K`` with restarts (spec §8.4), fit on ``fit_early``
-   (1999-2006), scored causally on Universe B's val split (2018).
+   (1999-2006), scored causally on Universe B's val split (2018). A ``K``
+   whose best restart is degenerate is discarded outright; among the
+   survivors, the highest validation log-likelihood wins, with near-ties
+   (within ``cfg.hmm.selection.near_tie_margin`` points) broken by BIC
+   (spec §8.4 amendment, D-025).
 
-The specification/K with the higher validation log-likelihood is carried
-forward: a full expanding-window, monthly, canonically-relabelled walk-
-forward (spec §8.6) from ``fit_early``'s start through the end of the test
-split, producing the regime posterior series step 3b's state assembly will
-consume.
+**Why only one spec.** An earlier version of this script fit multiple
+specifications (H1, H2) and picked whichever had the higher validation
+log-likelihood. That comparison is invalid: a multivariate Gaussian density
+(H2, 4 observation dims) sits on a structurally different scale than a
+univariate one (H1, 1 dim) on the same data, so the higher-dimensional spec
+wins regardless of regime quality — and H2 was, independently, degenerate at
+every ``K`` in its own sweep. See DECISIONS.md D-024. Comparing specs of
+different observation dimensionality is no longer something this script does
+at all; ``cfg.hmm.fit.specification`` is a pinned, human decision, not an
+automatic winner.
+
+The pinned spec's selected ``K`` is carried forward: a full expanding-window,
+monthly, canonically-relabelled walk-forward (spec §8.6) from ``fit_early``'s
+start through the end of the test split, producing the regime posterior
+series step 3b's state assembly will consume. The walk-forward itself now
+raises if more than ``cfg.hmm.walkforward.max_degenerate_fold_fraction`` of
+its folds come back with every restart degenerate (spec §8.6 amendment,
+D-026) — a spec/K pair that cannot produce a single clean restart across a
+large share of the walk-forward is not safe to trust, and the posteriors
+this script would otherwise still happily persist are not a sound basis for
+anything downstream.
 
 Evaluation (spec §8.7): state characterisation, posterior quality, and
 detection against both NBER recessions and SPY drawdown episodes, compared
@@ -196,31 +215,30 @@ def main(argv: list[str] | None = None) -> int:
     features_a = pd.read_parquet(cfg.path("processed") / "A_features.parquet")
     features_b = pd.read_parquet(cfg.path("processed") / "B_features.parquet")
 
-    # --- K-selection: H1 and H2 on Universe A --------------------------- #
-    sweep_results: dict[str, FitSweepResult] = {}
-    for spec_name, spec in cfg.hmm.specifications.items():
-        obs = build_observation_frame(features_a, list(spec.observations))
-        sweep_results[spec_name] = run_k_sweep(cfg, obs, spec_name)
-        write_k_sweep_report(
-            cfg.path("tables") / f"hmm_k_selection_{spec_name}.md", spec_name, sweep_results[spec_name]
-        )
+    # --- K-selection: the pinned specification, on Universe A ----------- #
+    # Spec §8.2 amendment, D-024: no cross-spec comparison — see module
+    # docstring. `winner`/`winner_k` names are kept (rather than renamed to
+    # e.g. `spec_name`) because every downstream consumer of
+    # ``hmm_summary.json`` (notably ``scripts/03b_build_states.py``'s O1
+    # oracle rebuild) reads ``summary["walkforward"]["specification"]`` /
+    # ``["k"]`` and nothing about that contract needs to change.
+    winner = cfg.hmm.fit.specification
+    spec = cfg.hmm.specifications[winner]
+    obs = build_observation_frame(features_a, list(spec.observations))
+    sweep_result = run_k_sweep(cfg, obs, winner)
+    write_k_sweep_report(cfg.path("tables") / f"hmm_k_selection_{winner}.md", winner, sweep_result)
 
-    winner = max(sweep_results, key=lambda name: sweep_results[name].selected.val_loglik)
-    winner_k = sweep_results[winner].selected_k
-    log.info(
-        "Specification comparison: %s",
-        {name: r.selected.val_loglik for name, r in sweep_results.items()},
-    )
-    log.info("WINNER: %s (K=%d, val_ll=%.2f)", winner, winner_k, sweep_results[winner].selected.val_loglik)
+    winner_k = sweep_result.selected_k
+    log.info("Specification: %s (pinned). Selected K=%d (val_ll=%.2f)",
+              winner, winner_k, sweep_result.selected.val_loglik)
 
     summary: dict[str, object] = {
         "k_selection": {
-            name: {
-                "selected_k": r.selected_k,
-                "val_loglik": r.selected.val_loglik,
-                "observations": list(r.observation_columns),
+            winner: {
+                "selected_k": sweep_result.selected_k,
+                "val_loglik": sweep_result.selected.val_loglik,
+                "observations": list(sweep_result.observation_columns),
             }
-            for name, r in sweep_results.items()
         },
         "winner": winner,
         "winner_k": winner_k,
@@ -256,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
             seed_base=cfg.data.seeds.master,
             min_expected_duration_days=cfg.hmm.selection.min_expected_duration_days,
             min_unconditional_prob=cfg.hmm.selection.min_unconditional_prob,
+            max_degenerate_fold_fraction=cfg.hmm.walkforward.max_degenerate_fold_fraction,
         )
         log.info(
             "Walk-forward done in %.1fs: %d folds, %d posterior rows (%s..%s)",
@@ -335,29 +354,29 @@ def main(argv: list[str] | None = None) -> int:
         b_train_start, b_train_end = plan["train"].effective_start, plan["train"].effective_end
         b_val_start, b_val_end = cfg.data.split("val")
 
-        robustness_results: dict[str, FitSweepResult] = {}
-        for spec_name, spec in cfg.hmm.specifications.items():
-            obs = build_observation_frame(features_b, list(spec.observations))
-            fit_cfg = cfg.hmm.fit
-            sel_cfg = cfg.hmm.selection
-            log.info(
-                "[robustness %s] K-sweep on B-train-only: fit %s..%s val %s..%s",
-                spec_name, b_train_start.date(), b_train_end.date(), b_val_start.date(), b_val_end.date(),
-            )
-            result = fit_and_select(obs, b_train_start, b_train_end, b_val_start, b_val_end, cfg)
-            robustness_results[spec_name] = result
-            write_k_sweep_report(
-                cfg.path("tables") / f"hmm_k_selection_{spec_name}_robustness_B.md",
-                f"{spec_name} (robustness: B-train-only)", result,
-            )
-            log.info(
-                "[robustness %s] selected K=%d (val_ll=%.2f) vs A-fitted K=%d (val_ll=%.2f)",
-                spec_name, result.selected_k, result.selected.val_loglik,
-                sweep_results[spec_name].selected_k, sweep_results[spec_name].selected.val_loglik,
-            )
+        # Spec §8.2 amendment, D-024: robustness is checked for the pinned
+        # spec only — the same reason the main K-selection above no longer
+        # loops over every declared specification.
+        obs_b = build_observation_frame(features_b, list(spec.observations))
+        log.info(
+            "[robustness %s] K-sweep on B-train-only: fit %s..%s val %s..%s",
+            winner, b_train_start.date(), b_train_end.date(), b_val_start.date(), b_val_end.date(),
+        )
+        robustness_result = fit_and_select(obs_b, b_train_start, b_train_end, b_val_start, b_val_end, cfg)
+        write_k_sweep_report(
+            cfg.path("tables") / f"hmm_k_selection_{winner}_robustness_B.md",
+            f"{winner} (robustness: B-train-only)", robustness_result,
+        )
+        log.info(
+            "[robustness %s] selected K=%d (val_ll=%.2f) vs A-fitted K=%d (val_ll=%.2f)",
+            winner, robustness_result.selected_k, robustness_result.selected.val_loglik,
+            sweep_result.selected_k, sweep_result.selected.val_loglik,
+        )
         summary["robustness_b_train_only"] = {
-            name: {"selected_k": r.selected_k, "val_loglik": r.selected.val_loglik}
-            for name, r in robustness_results.items()
+            winner: {
+                "selected_k": robustness_result.selected_k,
+                "val_loglik": robustness_result.selected.val_loglik,
+            }
         }
 
     run_id = make_run_id("02_fit_hmm")

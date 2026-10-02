@@ -620,14 +620,246 @@ exact method `configs/experiments/tier1_probes.yaml` names). Step 4a extends
 this to every variant and target with a walk-forward refit schedule; it does
 not replace or re-architect it.
 
+### D-020 · V1' carries the full flattened window, not a PCA compression
+**Date:** 2026-10-01 · **Status:** implemented — surfaced to the user before coding, per spec §17.5
+
+Spec §10 describes V1' as "the same features over the window, flattened
+**or** PCA-compressed." Compressing to `latent_dim` would make V1' dimension-
+matched to V2 — but C1 (the random encoder) already isolates exactly that
+case ("more dimensions" vs "a learned representation") at matched
+`latent_dim`. If V1' were also compressed, the two mandatory gates
+(`V2 > V1'` and `V2 > C1`) would stop being independent falsifications: a
+failure of either would partly retest the other. V1' is therefore the full
+window flattened (`window * n_features` columns, via
+`prism.models.baselines.pca_encoder.flatten_windows`) — a pure "more history,
+unlearned" control, confirmed with the user as the first open decision of
+this step.
+
+### D-021 · `state.py` assembles from precomputed artifacts; it does not fit anything
+**Date:** 2026-10-01 · **Status:** implemented
+
+`build_state` takes a `StateArtifacts` bundle (encoder latents, HMM
+posteriors, random-encoder latents, threshold-regime one-hot, O1's smoothed
+posteriors) as already-computed, already-causal, date-indexed frames, and
+raises `MissingArtifactError` naming exactly what is absent for a given
+variant rather than refitting anything itself. This matches the module
+boundary everywhere else in the project (walk-forward modules fit; `state.py`
+assembles) and is what keeps `tests/test_state.py` fast — hand-built
+synthetic artifacts stand in for a real HMM/encoder fit, the same style
+`test_threshold_regime.py` and `test_encoder_baselines.py` already use for
+the modules that produce those artifacts in production.
+`scripts/03b_build_states.py` is the one place that wires real,
+step-2/step-3-persisted artifacts into it; C1 and C2 are cheap enough
+(no backprop, a handful of walk-forward folds) that the script recomputes
+them directly rather than requiring a fourth/fifth persisted parquet.
+
+### D-022 · O1 (the leaky oracle) is per-fold smoothed, computed by extending `hmm_walkforward`
+**Date:** 2026-10-01 · **Status:** implemented — surfaced to the user before coding, per spec §17.5
+
+No smoothed-posteriors function existed; only the causal `filtered_posteriors`
+(spec §8.3's fix for defect B1). O1 needs `hmmlearn`'s own forward-backward
+(`predict_proba`) run over each walk-forward fold's fit+apply window, apply
+rows kept — leaky only *within* a fold, not across the whole sample. Rather
+than a second, parallel fitting path, `hmm_walkforward` grew an
+`also_smoothed: bool = False` flag that reuses the SAME already-fitted,
+canonically-relabelled fold model to also emit `smoothed_posteriors` — one
+extra `predict_proba` call per fold, no duplicate EM fit, and the filtered
+output is unperturbed (asserted in
+`tests/test_hmm.py::test_also_smoothed_reuses_the_fold_model_and_differs_from_filtered`).
+`scripts/03b_build_states.py --with-oracle` re-runs the walk-forward for the
+winning spec/K (read back from `hmm_summary.json`) with this flag set, since
+step 2 does not persist per-fold model objects; it asserts the re-derived
+filtered posteriors match the persisted ones exactly before trusting the
+smoothed output. O1 stays out of `cfg.tier1.variants` (enforced at the config
+layer already) and is written to its own file, never merged with the eight
+reportable variants.
+
+### D-023 · C2's one-hot cardinality tracks the HMM's actual selected K; its signal is `vix_level`
+**Date:** 2026-10-01 · **Status:** implemented
+
+C2 must be column-count-comparable to V3 for the gate (`V3 > C2`) to compare
+like with like, so `scripts/03b_build_states.py` takes
+`k = hmm_posteriors.shape[1]` (the real, already-selected K) rather than a
+hardcoded or re-swept value. The threshold signal is `vix_level` — the same
+series step 2's own HMM-vs-baseline detection comparison already uses (spec
+§8.7) — rather than inventing a second baseline signal.
+
+### D-024 · HMM specification pinned to H1; H2 dropped — cross-spec log-likelihood comparison is invalid
+**Date:** 2026-10-02 · **Status:** implemented
+
+The original step-2 design fit H1 (returns only, 1 observation dim) and H2
+(returns + vix_change + curve_change + avg_pairwise_corr_change, 4 dims) and
+picked whichever had the higher validation log-likelihood
+(`scripts/02_fit_hmm.py`'s `max(sweep_results, key=val_loglik)`). This
+comparison was invalid and is removed, not patched: a multivariate Gaussian
+density sits on a structurally different scale than a univariate one on the
+same data, so the higher-dimensional spec (H2) wins such a comparison
+regardless of whether its regimes are any good — which they were not (see
+below). `configs/hmm.yaml` now pins the active spec explicitly
+(`hmm.fit.specification`, validated at config-load time to name a declared
+specification), and `scripts/02_fit_hmm.py` fits and walk-forwards only that
+one spec; there is no code path left that compares `val_loglik` across
+specs of different dimensionality. H2 stays declared in `configs/hmm.yaml`
+for the historical K-sweep record (`reports/tables/hmm_k_selection_H2.md`),
+not as a selectable alternative.
+
+**Why H2 specifically, independent of the dimensionality problem.** A
+diagnostic refit of every K in H2's own sweep (2-8) found a degenerate best
+restart — expected state duration ≈ 1-2 days against the 5-day floor, on
+essentially every state — at **every single K**, including K=4, the one the
+old (invalid) cross-spec comparison had selected. H2 would have been dropped
+on this basis even if its dimensionality were comparable to H1's.
+
+### D-025 · K=2 selected for H1 via a corrected within-spec algorithm (discard degenerate, near-tie BIC)
+**Date:** 2026-10-02 · **Status:** implemented
+
+`select_best_k` (`src/prism/models/hmm/fit.py`) previously preferred
+non-degenerate `K` by validation log-likelihood but fell back to the full
+pool (flagged) if every `K` was degenerate — i.e. a degenerate `K` could
+still win if nothing else survived. It now **discards any `K` whose best
+restart is degenerate outright**, before any comparison, and raises
+`RuntimeError` if that leaves nothing (no silent least-bad fallback — a
+sweep with zero non-degenerate `K` is itself a finding that must stop the
+pipeline, not get quietly worked around). Among the non-degenerate
+survivors, the highest validation log-likelihood wins **unless** another
+survivor is within `hmm.selection.near_tie_margin` (2.0 points) of it, in
+which case the tie is broken by BIC (lower is better) rather than by a raw
+log-likelihood difference too small to be meaningful at this sample size.
+
+Applied to H1's real sweep: K=4 through K=8 are degenerate and discarded
+outright. Of the two survivors, K=3's val_loglik (816.59) edges out K=2's
+(815.07) by 1.52 points — inside the 2.0-point near-tie margin — and K=2
+has the better (more negative) BIC (-11177.82 vs -11148.28), so **K=2 wins**.
+K=2 is also, independently, the only fit in the entire H1/H2 sweep (both
+specs, every K) with a long realised dwell time (pooled median decoded dwell
+9 days, vs 1-4 days everywhere else) and the lowest per-state duration
+fail rate (5%) of any candidate — the statistical tiebreak and the
+qualitative "does this look like a regime" check agree.
+
+### D-026 · `hmm_walkforward` raises above a 10% all-restarts-degenerate fold rate
+**Date:** 2026-10-02 · **Status:** implemented
+
+Before this change, a walk-forward fold where every restart was degenerate
+silently fell back to the least-bad restart and kept going — correct
+per-fold behaviour (there is no better restart to pick), but with no
+aggregate check on how OFTEN that was happening. A diagnostic refit of H2's
+2019-07..2023-12 folds (54 of 204) found **0/54 with any clean restart at
+all**, and a backward search from fold 180 found no clean fold anywhere back
+to fold 0 — the "least-bad fallback" was not a rare safety valve for H2, it
+was running on effectively every fold.
+
+`hmm_walkforward` now counts folds where every restart was degenerate and
+raises `RuntimeError` if that fraction exceeds
+`hmm.walkforward.max_degenerate_fold_fraction` (0.10) after the full
+walk-forward completes. This is a guardrail against exactly the H2 failure
+mode recurring silently for H1 or any future spec/K — it does not change
+what any individual fold does, only whether the aggregate result is trusted
+enough to return at all.
+
+**Consequence, and resolution.** At the time D-024/D-025/D-026 were written,
+`data/processed/hmm_posteriors.parquet` and everything under
+`data/processed/states/` were still the OLD H2/K=4 artifacts and were left
+unregenerated pending review. Step 2 (D-024/D-025/D-026) was reviewed and
+accepted on 2026-10-02; `scripts/02_fit_hmm.py` was re-run and
+`hmm_posteriors.parquet` now reflects H1/K=2 (confirmed: 0/204 walk-forward
+folds fully degenerate, well under the 10% guard — see D-027 for how its
+dwell time is characterised). `scripts/03b_build_states.py --with-oracle`
+was then re-run so all nine state variants (`data/processed/states/`) are
+rebuilt consistently against the new posteriors; `encoder_latents.parquet`
+is untouched and did not need rebuilding (the encoder does not consume HMM
+output).
+
+### D-027 · Full walk-forward dwell time: report the time-weighted mean, not the run-count median — the median is distorted by single-day boundary flips
+**Date:** 2026-10-02 · **Status:** documentation only — no model, prior, or threshold change
+
+The accepted H1/K=2 walk-forward's decoded state path (4278 days, 257 runs)
+was first summarized by a run-count median: 4 days pooled (Q1=1, Q3=12),
+treating each of the 257 runs as one equally-weighted observation. That
+number understates the model's actual persistence. A chain that is mostly
+stable but flickers back and forth for a day or two right at a genuine
+regime boundary — a filtered posterior crossing 0.5 and re-crossing a day or
+two later, not a new regime starting — contributes several extra *short*
+runs around every *one* boundary. Counting runs, rather than days, lets a
+handful of boundary flips outvote the long stable stretches between them,
+which is exactly backwards for a persistence claim.
+
+**The time-weighted figure is the persistence evidence to use instead:**
+mean run length ≈ 17 days (16.65 pooled; total days / total runs — equal to
+the expected length of the run a randomly-chosen *day* falls in), max 350
+days. Per state: state 0 (the lower-return-std state) ≈ 23.3 days, state 1
+≈ 9.9 days — consistent with state 0 being the more persistent, calmer
+regime. This is the number `reports/tables/hmm_evaluation_H1.md` and any
+future report should quote for "how long do regimes last", not the run-count
+median.
+
+**No stickiness prior.** This is a reporting choice about which summary
+statistic characterises an already-fitted model's output — nothing in
+fitting or decoding changed. No Dirichlet/sticky transition-matrix prior or
+other persistence-favouring regularisation was added anywhere; the
+posteriors and the decoded path are exactly what the accepted D-024/D-025/
+D-026 walk-forward produced.
+
+### D-028 · Defect fixed: C1 and V1' were built from config defaults, not the encoder step 3 selected
+**Date:** 2026-10-02 · **Status:** fixed before the Tier 1 pre-registration was committed
+
+Found while writing the pre-registration. `scripts/03b_build_states.py` built
+C1 (random encoder) with `cfg.encoder.window.size` (30) and
+`cfg.encoder.architecture.latent_dim` (16), and `build_state` built V1' with
+`cfg.encoder.window.size` (30). Step 3 had selected window **10** and
+latent_dim **32** (`encoder_summary.json`); the config values are only the
+defaults the sweep started from. Consequences, had it gone uncorrected: C1
+added 16 columns against V2's 32, so the V2-vs-C1 gate would not have isolated
+"learned" from "more dimensions" (the whole purpose of C1, spec §10); and V1'
+carried 30 sessions of history against the 10 V2's encoder saw, breaking the
+same-information control (design gap D3). The script's own docstring claimed
+"same window/dims as the real encoder", which the code did not do.
+
+Fix: the script reads the selection from `encoder_summary.json`; C1 uses the
+selected window / hidden / latent; `build_state` takes an explicit
+`v1p_window` (passed from the same selection) instead of defaulting silently;
+the script aborts if C1's width differs from V2's. V1' is now window 10
+(2024 columns, 4182 sessions), C1 is window 10 / 32 dims. Both state files
+were rebuilt; their schema hashes changed, and the Tier 1 pre-registration
+records the rebuilt files' hashes. The earlier accepted rebuild (D-023's
+neighbours, this date) is superseded for V1' and C1 only; V1, V2, V3, V4, C2,
+C3 and O1 were unaffected.
+
+### D-029 · Step 3 did not meet its acceptance criterion and was carried forward anyway; the Tier 1 gate is the deciding test
+**Date:** 2026-10-02 · **Status:** recorded before the Tier 1 run
+
+Spec §16 gives step 3's acceptance as "beats PCA and random encoder on probe"
+(§9.4: with non-overlapping confidence intervals). **It did not.** The
+latent-only probe of `fwd_vol_20` scored R² (test) of -0.049 for the DAE
+latent and -0.203 for the purely predictive PRED latent, against 0.179 for
+walk-forward PCA and 0.214 for the frozen random encoder (see "The encoder does
+not beat PCA or the random encoder on the probe", above). §9.4's own text says
+that in this case the encoder is simplified or dropped, and the result reported.
+
+Step 3 was nevertheless carried forward, knowingly, for two reasons stated here
+so it is a decision rather than an omission. First, that probe scored the
+latent *alone*; the gate that matters, V2 (V1 plus latent) against V1' and C1
+(each also carrying the full feature set), is a different and harder-to-read
+comparison that only exists once state assembly does (step 3b). Second, the
+Tier 1 gate (`tier1.gates.lstm_adds_value`: V2 > V1' and V2 > C1) is the
+pre-registered test of whether the LSTM earns its place, and it is run once,
+under `reports/tables/preregistration.md`, rather than being pre-judged by a
+single-target preview.
+
+**This does not rescue the encoder.** The step-3 result is a strong prior that
+the LSTM gate fails, and the pre-registration says so (Hyp-3). If the gate fails
+the LSTM is redesigned or dropped before Phase B per §13.1; carrying step 3
+forward changes the order of work, not the standard it is held to.
+
 ---
 
 ## Gate decisions (Tier 1)
 
-*Formal decisions await step 4a's full `V1'`/`C1`/`C2`/`C3` comparison using
-assembled state vectors (not yet built — step 3b). Step 3's own finding
-("Step 3 — The encoder does not beat PCA or the random encoder on the
-probe", above) is a strong prior that the `V2 > V1'` / `V2 > C1` gate may
-fail, but is not itself that gate. Per §13.1, a component that does not beat
-its own control with non-overlapping confidence intervals is redesigned or
-dropped before Phase B, and the decision is recorded here **either way**.*
+*Formal decisions await step 4a's full `V1'`/`C1`/`C2`/`C3` comparison. State
+vectors for all eight reportable variants are now built (step 3b, D-020
+through D-023) and persisted at `data/processed/states/`; step 4a's probes
+and allocator still need to run against them. Step 3's own finding ("Step 3
+— The encoder does not beat PCA or the random encoder on the probe", above)
+is a strong prior that the `V2 > V1'` / `V2 > C1` gate may fail, but is not
+itself that gate. Per §13.1, a component that does not beat its own control
+with non-overlapping confidence intervals is redesigned or dropped before
+Phase B, and the decision is recorded here **either way**.*

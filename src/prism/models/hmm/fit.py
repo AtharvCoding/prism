@@ -45,6 +45,7 @@ __all__ = [
     "RestartResult",
     "KResult",
     "n_free_params",
+    "DegeneracyCheck",
     "is_degenerate",
     "fit_restarts",
     "select_k",
@@ -68,12 +69,62 @@ def n_free_params(k: int, d: int) -> int:
     return (k - 1) + k * (k - 1) + k * d + k * d * (d + 1) // 2
 
 
+@dataclass(frozen=True)
+class DegeneracyCheck:
+    """Per-state detail behind :func:`is_degenerate`'s verdict.
+
+    ``bool(check)`` reproduces the old scalar-return behaviour exactly (every
+    existing ``if is_degenerate(...)`` / ``assert is_degenerate(...)`` call
+    site keeps working unchanged), while :attr:`expected_duration_days` and
+    :attr:`stationary_prob` expose the per-state values the verdict was
+    already computed from, for diagnostics that need to say WHICH state
+    failed WHICH bound rather than just that the model, overall, did.
+    """
+
+    degenerate: bool
+    expected_duration_days: np.ndarray
+    stationary_prob: np.ndarray
+    min_expected_duration_days: float
+    min_unconditional_prob: float
+
+    def __bool__(self) -> bool:
+        return self.degenerate
+
+    def failing_states(self) -> list[dict[str, Any]]:
+        """One row per (state, bound) that is checked, duration and mass both.
+
+        Includes passing rows too (``fails=False``) so a diagnostic can audit
+        every state's margin to its threshold, not only the failures.
+        """
+        rows: list[dict[str, Any]] = []
+        for i, (dur, stat) in enumerate(zip(self.expected_duration_days, self.stationary_prob)):
+            rows.append(
+                {
+                    "state": i,
+                    "bound": "expected_duration_days",
+                    "value": float(dur),
+                    "threshold": self.min_expected_duration_days,
+                    "fails": bool(dur < self.min_expected_duration_days),
+                }
+            )
+            rows.append(
+                {
+                    "state": i,
+                    "bound": "stationary_prob",
+                    "value": float(stat),
+                    "threshold": self.min_unconditional_prob,
+                    "fails": bool(stat < self.min_unconditional_prob),
+                }
+            )
+        return rows
+
+
 def is_degenerate(
     model: Any,
     *,
     min_expected_duration_days: float = 5.0,
     min_unconditional_prob: float = 0.02,
-) -> bool:
+) -> DegeneracyCheck:
     """Spec §8.4: reject states with near-zero mass or near-zero persistence.
 
     Expected duration of state ``i`` under a discrete-time Markov chain is
@@ -83,12 +134,22 @@ def is_degenerate(
     — the left eigenvector of ``transmat_`` for eigenvalue 1, which
     ``hmmlearn`` already implements correctly; re-deriving it by hand here
     would just be a second, less-tested copy.
+
+    Returns a :class:`DegeneracyCheck`, not a bare ``bool`` — see its
+    docstring for why existing truthiness-only call sites are unaffected.
     """
     diag = np.diag(model.transmat_)
     durations = 1.0 / np.clip(1.0 - diag, 1e-12, None)
     stationary = model.get_stationary_distribution()
-    return bool((durations < min_expected_duration_days).any()) or bool(
+    degenerate = bool((durations < min_expected_duration_days).any()) or bool(
         (stationary < min_unconditional_prob).any()
+    )
+    return DegeneracyCheck(
+        degenerate=degenerate,
+        expected_duration_days=durations,
+        stationary_prob=stationary,
+        min_expected_duration_days=min_expected_duration_days,
+        min_unconditional_prob=min_unconditional_prob,
     )
 
 
@@ -210,7 +271,7 @@ def fit_restarts(
                 train_loglik=ll,
                 converged=bool(model.monitor_.converged),
                 n_iter=int(model.monitor_.iter),
-                degenerate=is_degenerate(model),
+                degenerate=bool(is_degenerate(model)),
             )
         )
     return results
@@ -313,23 +374,52 @@ def select_k(
     return out
 
 
-def select_best_k(results: dict[int, KResult]) -> int:
-    """The spec §8.4 primary criterion: highest validation log-likelihood.
+def select_best_k(results: dict[int, KResult], *, near_tie_margin: float) -> int:
+    """Spec §8.4 (amended, D-025): highest validation log-likelihood, among
+    non-degenerate ``K`` only, with near-ties broken by BIC.
 
-    Prefers non-degenerate ``K`` values; falls back to the full pool only if
-    every ``K`` in the sweep produced a degenerate best-restart (which would
-    itself be a finding worth reporting, not silently working around).
+    A ``K`` whose best restart is degenerate is **discarded outright** before
+    any comparison — not merely deprioritised as the original "fall back to
+    the full pool, flagged" rule did. A degenerate best restart means every
+    restart EM found for that ``K`` has at least one state with an implausibly
+    short expected duration or near-zero mass; there is no reading of "most
+    likely on validation" that makes such a model trustworthy, so it is never
+    a candidate, no matter how high its ``val_loglik``.
+
+    Among the surviving, non-degenerate ``K`` values, the one with the
+    highest ``val_loglik`` wins outright **unless** another non-degenerate
+    ``K`` is within ``near_tie_margin`` log-likelihood points of it — raw
+    validation log-likelihood is noisy enough at this sample size that a gap
+    smaller than ``near_tie_margin`` is not a meaningful preference, and BIC
+    (lower is better; it penalises the extra parameters a higher ``K`` adds)
+    is the fairer tiebreaker among near-equally-likely candidates.
+
+    Raises if every ``K`` in the sweep is degenerate: unlike the old
+    fallback, there is no safe "least-bad" choice to make silently — that
+    is itself the finding, and the caller (or a human) must decide what to
+    do about the whole spec/``k_range`` pair, not this function.
     """
     if not results:
         raise ValueError("no K produced a usable fit; nothing to select from")
     non_degenerate = {k: r for k, r in results.items() if not r.degenerate}
-    pool = non_degenerate if non_degenerate else results
     if not non_degenerate:
-        _log.warning(
-            "every K in the sweep is degenerate; selecting the least-bad one. "
-            "This is a finding, not a bug — report it (spec §0.4.4)."
+        raise RuntimeError(
+            "every K in the sweep had a degenerate best restart; there is no "
+            "non-degenerate candidate to select from. This is a finding about the "
+            "observation spec itself, not a bug — investigate or drop it (spec "
+            "§8.4/§13.1) rather than trusting any K produced here."
         )
-    return max(pool, key=lambda k: pool[k].val_loglik)
+    best_val = max(r.val_loglik for r in non_degenerate.values())
+    near_tie = {
+        k: r for k, r in non_degenerate.items() if best_val - r.val_loglik <= near_tie_margin
+    }
+    if len(near_tie) > 1:
+        _log.info(
+            "K values %s are within %.2f val_loglik points of the best (%.2f); "
+            "breaking the tie by BIC (lower is better)",
+            sorted(near_tie), near_tie_margin, best_val,
+        )
+    return min(near_tie, key=lambda k: near_tie[k].bic)
 
 
 @dataclass(frozen=True)
@@ -381,7 +471,7 @@ def fit_and_select(
         min_expected_duration_days=sel_cfg.min_expected_duration_days,
         min_unconditional_prob=sel_cfg.min_unconditional_prob,
     )
-    selected_k = select_best_k(results)
+    selected_k = select_best_k(results, near_tie_margin=sel_cfg.near_tie_margin)
     return FitSweepResult(
         results=results,
         selected_k=selected_k,

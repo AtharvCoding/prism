@@ -106,6 +106,70 @@ def test_hmm_selection_is_driven_by_validation_likelihood(cfg: Config):
     )
 
 
+def test_hmm_pins_one_specification_rather_than_auto_selecting_across_specs(cfg: Config):
+    """Spec §8.2 amendment, D-024: comparing val_loglik across specs of
+    different observation dimensionality is invalid (a multivariate Gaussian
+    density sits on a different scale than a univariate one on the same
+    data), so there is no automatic cross-spec winner — the active spec is a
+    pinned config value, validated to actually be a declared specification.
+    """
+    assert cfg.hmm.fit.specification in cfg.hmm.specifications
+    assert cfg.hmm.fit.specification == "H1"
+    with pytest.raises(ValueError, match="not a declared specification"):
+        load_config(root=cfg.root, overrides={"hmm": {"fit": {"specification": "does-not-exist"}}})
+
+
+def test_select_best_k_discards_degenerate_k_and_breaks_near_ties_by_bic():
+    """Spec §8.4 amendment, D-025, using the real H1 K-selection numbers:
+    K=2 and K=3 are both non-degenerate and within the 2.0-point near-tie
+    margin (815.07 vs 816.59); K=3's val_loglik is higher but its BIC is
+    worse (-11148.28 vs -11177.82, less negative = worse), so K=2 wins. A K
+    with the highest val_loglik of all, but a degenerate best restart, must
+    never win regardless of how large its margin over everything else is.
+    """
+    from prism.models.hmm.fit import KResult, RestartResult, select_best_k
+
+    def kresult(k: int, val_loglik: float, bic: float, degenerate: bool) -> KResult:
+        dummy = RestartResult(
+            k=k, seed=0, model=None, train_loglik=0.0, converged=True, n_iter=1,
+            degenerate=degenerate,
+        )
+        return KResult(
+            k=k, n_params=1, restarts=[dummy], best=dummy,
+            val_loglik=val_loglik, bic=bic, aic=0.0, degenerate=degenerate,
+        )
+
+    results = {
+        2: kresult(2, val_loglik=815.07, bic=-11177.82, degenerate=False),
+        3: kresult(3, val_loglik=816.59, bic=-11148.28, degenerate=False),
+        4: kresult(4, val_loglik=9999.0, bic=-1.0, degenerate=True),
+    }
+    assert select_best_k(results, near_tie_margin=2.0) == 2
+
+    # Outside the near-tie margin, the higher val_loglik simply wins.
+    clear_winner = {
+        2: kresult(2, val_loglik=100.0, bic=-5.0, degenerate=False),
+        3: kresult(3, val_loglik=200.0, bic=0.0, degenerate=False),
+    }
+    assert select_best_k(clear_winner, near_tie_margin=2.0) == 3
+
+
+def test_select_best_k_raises_if_every_k_is_degenerate():
+    """No safe 'least-bad' fallback: a sweep with no non-degenerate K at all
+    is itself the finding, and must stop the pipeline, not quietly pick one."""
+    from prism.models.hmm.fit import KResult, RestartResult, select_best_k
+
+    dummy = RestartResult(
+        k=2, seed=0, model=None, train_loglik=0.0, converged=True, n_iter=1, degenerate=True
+    )
+    results = {
+        2: KResult(k=2, n_params=1, restarts=[dummy], best=dummy,
+                   val_loglik=1.0, bic=1.0, aic=1.0, degenerate=True)
+    }
+    with pytest.raises(RuntimeError, match="every K in the sweep had a degenerate"):
+        select_best_k(results, near_tie_margin=2.0)
+
+
 def test_free_parameter_count_formula(cfg: Config):
     """The §8.4 formula, computed here so step 2 has a reference to match.
 
@@ -582,6 +646,64 @@ def test_walkforward_posteriors_are_deduplicated_and_calendar_aligned(cfg: Confi
     for fold_output in result.folds:
         stds = state_return_std(fold_output.model)
         assert stds[0] <= stds[1], f"fold {fold_output.fold.index} is not canonically labelled"
+
+
+def test_also_smoothed_reuses_the_fold_model_and_differs_from_filtered(cfg: Config, rng):
+    """Spec §10's O1 (the leaky oracle): smoothed posteriors come from the SAME
+    fold model as the filtered ones (no second fit), are also a valid
+    per-date probability distribution, and are not simply a copy of the
+    causal filtered posteriors — otherwise smoothing would not be leaking
+    anything.
+    """
+    from prism.models.hmm.walkforward import hmm_walkforward
+
+    obs = _make_walkforward_observations(rng)
+    kwargs = dict(
+        k=2, fit_start="2015-01-02", first_apply_start="2017-01-01", apply_end="2018-12-31",
+        cadence="quarterly", embargo_days=5, covariance_type="full",
+        n_restarts=3, n_iter=100, tol=1e-3, seed_base=cfg.data.seeds.master,
+    )
+    plain = hmm_walkforward(obs, **kwargs)
+    assert plain.smoothed_posteriors is None
+
+    leaky = hmm_walkforward(obs, also_smoothed=True, **kwargs)
+    assert leaky.smoothed_posteriors is not None
+    assert leaky.smoothed_posteriors.index.equals(leaky.posteriors.index)
+
+    row_sums = leaky.smoothed_posteriors.sum(axis=1).to_numpy()
+    np.testing.assert_allclose(row_sums, 1.0, atol=1e-8)
+    assert (leaky.smoothed_posteriors.to_numpy() >= -1e-12).all()
+
+    # Same seeds, same data -> the filtered run is reproduced exactly even
+    # with also_smoothed=True (the extra computation does not perturb fitting).
+    pd.testing.assert_frame_equal(leaky.posteriors, plain.posteriors)
+    # And smoothing is NOT just the filtered posteriors again.
+    assert not np.allclose(
+        leaky.smoothed_posteriors.to_numpy(), leaky.posteriors.to_numpy(), atol=1e-6
+    )
+
+
+def test_hmm_walkforward_raises_when_too_many_folds_are_fully_degenerate(cfg: Config, rng):
+    """Spec §8.6 amendment, D-026: more than ``max_degenerate_fold_fraction``
+    of folds coming back with every restart degenerate means the spec/K pair
+    is not producing usable regimes often enough to trust — raise, don't
+    silently return the posteriors anyway."""
+    from prism.models.hmm.walkforward import hmm_walkforward
+    from prism.utils.calendar import trading_days
+
+    idx = trading_days("2015-01-02", "2018-12-31")
+    # Pure i.i.d. noise: no persistence at all, so EM has nothing but overfit
+    # noise to carve into "states" — every fold's best restart is degenerate.
+    obs = pd.DataFrame({"x": rng.normal(size=len(idx))}, index=idx)
+
+    with pytest.raises(RuntimeError, match="exceeding max_degenerate_fold_fraction"):
+        hmm_walkforward(
+            obs, k=2,
+            fit_start="2015-01-02", first_apply_start="2017-01-01", apply_end="2018-12-31",
+            cadence="quarterly", embargo_days=5, covariance_type="full",
+            n_restarts=3, n_iter=100, tol=1e-3, seed_base=cfg.data.seeds.master,
+            max_degenerate_fold_fraction=0.10,
+        )
 
 
 def _make_crisis_scenario(start="2015-01-02", end="2019-12-31"):
