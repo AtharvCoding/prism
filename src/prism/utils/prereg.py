@@ -19,7 +19,7 @@ PREREG = "reports/tables/preregistration.md"
 _LINE = re.compile(r"^([0-9a-f]{64})  (\S+)$", flags=re.M)
 
 
-def preregistered_hashes(root: str | Path) -> dict[str, str]:
+def preregistered_hashes(root: str | Path, prereg: str = PREREG) -> dict[str, str]:
     """``{path relative to data/processed: sha256}`` for every listed file."""
-    text = (Path(root) / PREREG).read_text(encoding="utf-8")
+    text = (Path(root) / prereg).read_text(encoding="utf-8")
     return {name: digest for digest, name in _LINE.findall(text)}

@@ -10,7 +10,7 @@ requires-python = "==3.11.*"
 readme = "README.md"
 
 # Phase B opened with DECISIONS.md D-032: gymnasium is added for the step 4b
-# environment. stable-baselines3 stays out until step 4c (SAC).
+# environment. stable-baselines3 (SAC) joined at step 4c.
 dependencies = [
     "numpy==2.1.3",
     "pandas==3.0.6",
@@ -29,6 +29,7 @@ dependencies = [
     "rich==15.0.0",
     "statsmodels==0.15.0",
     "gymnasium==1.3.0",
+    "stable-baselines3==2.9.0",
 ]
 
 [project.optional-dependencies]

@@ -126,12 +126,27 @@ class PortfolioEnv(gym.Env):
         return obs, {"decision_date": self.current_decision_date, "nav": self._nav}
 
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        return self.step_weights(action_to_weights(action, self._upper, self.logit_scale))
+
+    @property
+    def drifted_weights(self) -> np.ndarray:
+        """The weights as drifted to the next execution close: what a pure hold would keep."""
+        return self._w_exec.copy()
+
+    def step_weights(self, target: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        """One step with explicit target weights (``step`` is this after the action map).
+
+        Used by the Tier 2 benchmarks, whose weights (an SPY line, a hold) are not
+        reachable through the action map. The cost, drift and reward are the same code path.
+        """
+        target = np.asarray(target, dtype="float64")
+        if target.shape != (self._n,) or not np.isfinite(target).all():
+            raise ValueError("target weights must be a finite vector over the risky lines and cash")
         d, k = self.data, self._k
         e_pos, end_pos = int(d.exec_pos[k]), int(d.end_pos[k])
         has_next = k < d.n_decisions - 1
         next_d_pos = int(d.decision_pos[k + 1]) if has_next else end_pos
 
-        target = action_to_weights(action, self._upper, self.logit_scale)
         sigma = d.sigma[e_pos]
         cost = self.cost_model.trade_cost(self._w_exec, target, sigma)
         turnover = one_way_turnover(self._w_exec, target)
@@ -173,6 +188,7 @@ class PortfolioEnv(gym.Env):
             "turnover": turnover,
             "traded_notional": traded,
             "gross_return": gross,
+            "daily_returns": daily,
             "net_return": net,
             "nav": self._nav,
         }
@@ -211,7 +227,7 @@ def run_episode(
     while True:
         obs_in = obs
         obs, reward, terminated, truncated, info = env.step(policy(obs_in))
-        rows.append({**{k: v for k, v in info.items() if k != "weights"}, "reward": reward})
+        rows.append({**{k: v for k, v in info.items() if k not in ("weights", "daily_returns")}, "reward": reward})
         rows[-1].update({f"w_{name}": w for name, w in zip(env.data.lines, info["weights"])})
         if terminated or truncated:
             break

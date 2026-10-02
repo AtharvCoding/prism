@@ -33,6 +33,7 @@ __all__ = [
     "EncoderConfig",
     "HMMConfig",
     "Tier1Config",
+    "Tier2Config",
     "EnvConfig",
     "UniverseSpec",
     "load_config",
@@ -599,6 +600,92 @@ class EnvConfig(_Frozen):
 
 
 # --------------------------------------------------------------------------- #
+# experiments/tier2.yaml (Phase B, build step 4c)
+# --------------------------------------------------------------------------- #
+class Tier2GridConfig(_Frozen):
+    gamma: list[float] = Field(min_length=1)
+    hidden: list[list[int]] = Field(min_length=1)
+    lr: list[float] = Field(min_length=1)
+
+    @property
+    def n_configs(self) -> int:
+        return len(self.gamma) * len(self.hidden) * len(self.lr)
+
+
+class Tier2SacConfig(_Frozen):
+    batch_size: int = Field(ge=1)
+    buffer_size: int = Field(ge=1)
+    learning_starts: int = Field(ge=0)
+    tau: float = Field(gt=0, le=1)
+    train_freq: int = Field(ge=1)
+    gradient_steps: int = Field(ge=1)
+    reward_scale: float = Field(gt=0)
+
+
+class Tier2TrainingConfig(_Frozen):
+    steps: int = Field(ge=1)
+    eval_every: int = Field(ge=1)
+    workers: int = Field(ge=1)
+
+
+class Tier2SanityConfig(_Frozen):
+    edge_daily_return: float = Field(gt=0)
+    edge_asset: str
+    noise_daily_vol: float = Field(gt=0)
+    n_sessions: int = Field(ge=400)
+    start_date: str
+    seeds: list[int] = Field(min_length=1)
+    min_edge_weight_fraction_of_cap: float = Field(gt=0, le=1)
+    min_log_return_fraction_of_oracle: float = Field(gt=0, le=1)
+    random_policies: int = Field(ge=20)
+    random_quantile: float = Field(gt=0, lt=1)
+    random_quantile_reported: float = Field(gt=0, lt=1)
+    beat_random_variant: str
+    beat_random_min_seeds: int = Field(ge=1)
+
+
+class Tier2UncertaintyConfig(_Frozen):
+    block_length_days: int = Field(ge=1)
+    block_length_sensitivity: list[int]
+    n_bootstrap: int = Field(ge=100)
+    ci_level: float = Field(gt=0, lt=1)
+
+
+class Tier2Config(_Frozen):
+    variants: list[str] = Field(min_length=1)
+    comparisons: list[list[str]] = Field(min_length=1)       # [candidate, control]
+    reward: Literal["log_return_net"]
+    grid: Tier2GridConfig
+    tuning_seeds: list[int] = Field(min_length=1)
+    final_seeds: list[int] = Field(min_length=1)
+    selection_metric: Literal["val_mean_log_return"]
+    sac: Tier2SacConfig
+    training: Tier2TrainingConfig
+    sanity: Tier2SanityConfig
+    primary_metrics: list[str]
+    uncertainty: Tier2UncertaintyConfig
+    dsr_trials_headline: int = Field(ge=2)
+    dsr_trials_all_runs: int = Field(ge=2)
+    output_dir: str
+    log_dir: str
+
+    @model_validator(mode="after")
+    def _checks(self) -> Tier2Config:
+        if set(self.tuning_seeds) & set(self.final_seeds):
+            raise ValueError("tuning and final seeds must be disjoint, so the final seeds were never used to choose a config")
+        if len(self.final_seeds) < 10:
+            raise ValueError("spec §12 requires at least 10 seeds per variant")
+        for pair in self.comparisons:
+            if len(pair) != 2 or any(v not in self.variants for v in pair):
+                raise ValueError(f"comparison {pair!r} must name two configured variants")
+        if "O1" in self.variants:
+            raise ValueError("O1 is diagnostic only and is never trained")
+        if self.training.eval_every > self.training.steps:
+            raise ValueError("eval_every exceeds steps")
+        return self
+
+
+# --------------------------------------------------------------------------- #
 # base.yaml
 # --------------------------------------------------------------------------- #
 class DeterminismConfig(_Frozen):
@@ -617,6 +704,7 @@ class Config(_Frozen):
     encoder: EncoderConfig
     tier1: Tier1Config
     env: EnvConfig
+    tier2: Tier2Config
     #: Absolute path of the repository these configs were loaded from.
     root: Path
 

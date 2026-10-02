@@ -19,28 +19,37 @@ what is built and how to run it.
 
 ---
 
-## Current status — Phase A accepted, Phase B step 4b complete
+## Current status — Phase A accepted, Phase B step 4c built (not yet run)
 
 Phase A (steps 0–4a) is accepted; the Phase A-only restriction in spec §0.3 is
 lifted (DECISIONS.md D-032). Both Tier 1 component gates failed, so the LSTM
 and HMM are kept in Phase B only as the comparisons the research question
-needs. `gymnasium` is installed; `stable-baselines3` is not yet (step 4c).
-`src/prism/agents/` is still a docstring stub.
+needs. `gymnasium` and `stable-baselines3` are installed.
 
 | Step | Scope | Status |
 |---|---|---|
 | 0–3b | Repo, data, HMM, encoder, state assembly | complete |
 | 4a | Tier 1 ablation + Phase A report | complete (both gates fail) |
-| **4b** | **Environment + costs** (`src/prism/env/`) | **complete — awaiting review** |
-| 4c | SAC + Tier 2 ablation (V1, V2, V4, C4) | not started |
+| 4b | Environment + costs (`src/prism/env/`) | complete |
+| **4c** | **SAC + Tier 2 ablation** (V1, V2, V4, C4) | **built and pre-registered; sanity gates passed; the run itself (`make tier2`, about 12 h) is not started** |
 | 5 | Final report + holdout | not started |
 
 Phase B state variants: V1, V2, V4 and the control **C4** (V2 plus the C2
 threshold-regime columns). Check the environment on the real train split with
 `make env-check` (writes `reports/tables/env_check.md`).
 
+**Step 4c.** `reports/tables/preregistration_tier2.md` fixes the design (grid,
+seeds, budget, comparisons, gate rule) and is committed before any tuning run
+and before the test split is read; `reports/tables/tier2_sanity.md` records the
+SAC sanity gates. `make tier2` runs sanity → tune → freeze → final → one test
+evaluation → report, resumable (finished runs are skipped), logging to
+`logs/tier2/`, writing `reports/tier2_report.md` and appending the gate
+decisions to `DECISIONS.md`. `make tier2-smoke` runs the whole pipeline at toy
+size on the **validation** split. The test split was viewed in Tier 1, so Tier 2
+results on it are exploratory; the holdout stays reserved for step 5.
+
 ```
-351 passed
+379 passed
 ```
 
 No skips and no xfails remain: every spec §7 contract is a real test, and the

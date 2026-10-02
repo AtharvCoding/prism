@@ -1095,3 +1095,74 @@ test split, and a reward variant added after seeing test output would be a forki
 records a dirty tree) and the commit followed with no change to `src/prism/env/`, `src/prism/config.py`, `configs/env.yaml` or the
 script in between; only the README, Makefile, pyproject pin, `DECISIONS.md` and a test were touched after the final run. C4 itself
 was built by commit `415947d`; `03b_build_states.py --phase-b-only` rebuilds it byte-identically.
+
+### D-038 · Step 4c design: SAC, the Tier 2 contract and how a "variant" is compared
+**Date:** 2026-10-03 · **Decided by:** principal investigator (variants, grid, seeds, reward, runner contract); implementation choices mine · **Status:** implemented; fixed in `reports/tables/preregistration_tier2.md`
+
+What was decided for me: variants V1, V2, V4, C4; reward `log_return_net` only; grid γ ∈ {0.9, 0.97} × network ∈ {[64,64], [128,128]} ×
+lr ∈ {3e-4, 1e-3}, 3 seeds per config, identical for every variant, tuned on validation only; best config per variant, 10 seeds,
+checkpoint selection on validation; comparisons V4-V2, V4-C4, V2-V1; Tier 1's paired-bootstrap rule, deflated Sharpe and
+drawdown episodes; benchmarks re-run through the env; an overfitting report; `make tier2` resumable and aborting before the test split
+if the sanity gates fail. What I chose, each one fixed in the pre-registration before any run:
+
+1. **A variant is a set of seeds; the Tier 1 gate rule is carried over by changing the comparison unit.** Tier 1's unit was squared forecast
+   error per day on four risk targets. Here: four primary metrics of each seed's daily net return series (annualised return, Sharpe, max
+   drawdown, CVaR 95%, all oriented larger-is-better); a variant's statistic is the mean over its 10 seeds; the CI comes from the stationary
+   block bootstrap with **days and seeds both resampled** (one shared day path per replicate for every series, seeds resampled
+   independently per variant); a comparison passes iff favourable on >= 3 of 4 metrics and adverse on none; the spec's non-overlapping-CI
+   version is reported beside it; the paired rule decides. A resample of days alone would treat 10 seeds as one estimate and understate the
+   uncertainty; resampling seeds as well is what makes "seed variance" part of the verdict.
+2. **Tuning statistic.** Per run: the best-checkpoint validation mean per-decision `log_return_net` of the deterministic policy; per config: the
+   mean over the 3 tuning seeds; ties go to the earlier grid position. It is the training objective, evaluated on 46 validation decisions, so it is
+   noisy; the full tuning table is reported. Tuning seeds (1000-1002) are disjoint from final seeds (0-9), enforced by config validation, so
+   the final seeds never chose a configuration.
+3. **Deflated Sharpe trial count.** N = 40 (every final run is a trial; per-run Sharpe variance across the 40) as the headline, N = 136 (all runs
+   trained, tuning included) as the sensitivity. "Claimable" needs the gate AND a median DSR >= 0.95 across the candidate's seeds, as Tier 1 needed
+   the CI AND DSR >= 0.95.
+4. **Env additions (behaviour-preserving).** `PortfolioEnv.step_weights` (the same code path as `step` after the action map; `step` now calls it),
+   `drifted_weights` (what a pure hold keeps), `info["daily_returns"]`, and a `risky=` override on `build_env_data`. They exist so the six benchmarks,
+   whose weights (an SPY line, a hold) are not reachable through the action map, run through the env's cost and drift code, and so a daily net return
+   series can be built that compounds exactly to the env's NAV (asserted at run time; the cost paid at an execution close is charged on the first session of
+   the holding period it opens). `make env-check` was re-run after the change: `reports/tables/env_check.md` is byte-identical.
+5. **Benchmarks** reuse the Tier 1 weight functions (`prism.backtest.benchmarks`) on the env's own decision dates, with SPY as a benchmark-only line
+   (D-035: SPY is not an agent asset). Buy-and-hold SPY trades once and then holds (zero cost after initiation, tested).
+6. **Dependencies.** `stable-baselines3==2.9.0` pinned. 2.8.0 would have downgraded `gymnasium` to 1.2.3 (it requires `<1.3`); 2.9.0 allows `<2.0`, so
+   `gymnasium==1.3.0` is unchanged.
+7. **Runner.** Process pool (spawn), one torch thread per process; every run is a directory whose `result.json` is written last and atomically, so a
+   run killed midway is retrained from scratch on resume (a replay buffer is not worth checkpointing for a 30-minute run). The frozen configs are
+   written once and refused if edited or overwritten; the single test evaluation leaves a marker and does not repeat. `--smoke` runs the same code at toy
+   size, with the validation split standing in for test, into a separate directory, and never writes the report or `DECISIONS.md`. The contract check
+   (pre-registration committed and unmodified; input SHA-256 values match) applies to every stage but `--stage sanity`, which reads train/validation
+   only and may run before the pre-registration exists. `make tier2` is wrapped in `caffeinate -i` where available.
+8. **Reward scale 10 during training only.** SAC's automatic entropy coefficient starts at 1 against rewards of order 1e-3, which left the agent barely off
+   equal weight at 20 000 steps (attempt 0 below). The scale is a positive constant, so it does not change the optimal policy; every checkpoint score,
+   evaluation and report reads the unscaled reward. It is not a reward-sensitivity experiment.
+
+### D-039 · SAC sanity gates: what was tried, two gate-design corrections, and what the passing record does not show
+**Date:** 2026-10-03 · **Status:** gates pass at the production budget; full attempt table in `reports/tables/tier2_sanity.md` and pre-registration §5
+
+Gate 1 (degenerate task) and gate 2 (beats random on validation), train/validation only. Attempt 0 (reward scale 1) and attempt 1 (scale 100) both
+**failed** both gates. Exploratory runs on the synthetic task then showed the gate getting **worse with more training**, which is not what an optimiser
+fault looks like: random state features let the network memorise the single noise path. **That was a defect in my gate, not in SAC**, so gate 1 was redesigned
+(constant state, 3 000 sessions), not "fixed" with one of the three allowed knobs. Gate 2's bar was also corrected: at attempt 0 a constant equal-weight mix
+scored -0.00059 per decision on validation, below the 95th percentile of random policies (+0.00001), because 2018 was a falling year; a 95th-percentile bar
+measures the market. It moved to the **median** random policy, evaluated on the validation-selected checkpoint (the pipeline's product); the 95th percentile and the
+final checkpoint are reported, not gating. Both corrections were made before the production-length run and are disclosed as corrections. Attempt 2 (scale 10,
+300 000 steps) passed; the budget was then cut to 250 000 and the cadence refined (D-040), and **attempt 3, scale 10 at the production budget, passed**:
+degenerate task 1.00 / 1.00 / 1.00 of the weight cap and 0.98 / 0.83 / 0.92 of the oracle's return; beats random with selected-checkpoint ranks 0.93 / 0.82 / 0.92
+among 200 random policies. Learning rate and observation normalisation were not needed.
+
+**What the pass does not show.** No selected checkpoint beat the 95th percentile of random policies. The final checkpoints fit the train split at about +0.020
+per decision and predict validation at -0.0008 to -0.0017; two of three selected checkpoints in each of attempts 2 and 3 were at or near the first
+checkpoint (10 000-15 000 steps). SAC on about 550 weekly decisions overfits heavily, and checkpoint selection on a 46-decision validation window is noisy. This is why the
+overfitting report is part of the pre-registered output and why the Tier 2 result is read with it.
+
+### D-040 · Training budget: 250 000 steps per run, six workers, about 12.3 hours
+**Date:** 2026-10-03 · **Status:** fixed in pre-registration §6
+
+Timed on this MacBook Air M4: 412 steps/s for one process; with six processes about 156 (network [128,128]) and 173 ([64,64]) steps/s each, ≈ 990 aggregate;
+four processes ≈ 700 aggregate and eight ≈ 660-800, so **six workers**. A full 250 000-step run (the sanity gate, six in parallel) took 1 818-1 833 s. 136 runs
+(96 tuning + 40 final) in 23 rounds of six ≈ 12.3 h, ≈ 15.4 h with a 25% derating for sustained throttling of a fanless machine. The first choice, 300 000 steps,
+would have crossed 16 h under that derating; checkpoints every 5 000 steps (50 per run) cost 0.3 s each, so the finer early grid is free. Run:
+`make tier2` (it is resumable: re-running skips finished runs).
+

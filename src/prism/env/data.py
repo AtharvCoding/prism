@@ -122,12 +122,15 @@ def build_env_data(
     split: str,
     *,
     plan=None,  # noqa: ANN001 - prism.splits.SplitPlan
+    risky: list[str] | None = None,
 ) -> EnvData:
     """Arrays for one variant's ``state`` frame, restricted to one split.
 
     ``split`` is the split whose *effective* (embargo-purged) range the
     sessions are cut to, so no reward window crosses into an embargo or into
-    the next split. The holdout is refused outright.
+    the next split. The holdout is refused outright. ``risky`` overrides the
+    asset list (the Tier 2 benchmarks add SPY, which is a benchmark and not an
+    agent asset, D-035); the default is ``data.allocatable``.
     """
     from prism.data.loaders import assert_not_holdout
     from prism.splits import build_split_plan
@@ -135,7 +138,7 @@ def build_env_data(
     if split == "holdout":
         raise PermissionError("the holdout is locked until build step 5 (spec §6.3)")
     plan = plan if plan is not None else build_split_plan(cfg)
-    risky = list(cfg.data.allocatable[cfg.env.universe])
+    risky = list(risky) if risky is not None else list(cfg.data.allocatable[cfg.env.universe])
 
     lr_full = line_returns(close, risky)
     vol_full = lr_full[risky].rolling(cfg.env.costs.vol_window).std()

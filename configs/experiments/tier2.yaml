@@ -1,0 +1,58 @@
+# Tier 2 policy ablation. Spec §12, §13.2, build step 4c. Fixed by
+# reports/tables/preregistration_tier2.md: nothing here changes once that file is
+# committed, and no value is tuned on the test split.
+variants: ["V1", "V2", "V4", "C4"]            # D-032; V1p, V3, C1, C2, C3 are Tier 1 variants only
+# [candidate, control]: the candidate is the first name.
+comparisons: [["V4", "V2"], ["V4", "C4"], ["V2", "V1"]]
+reward: log_return_net                         # the only reward trained; no reward sensitivity runs
+
+grid:                                          # identical for every variant, tuned on validation only
+  gamma: [0.9, 0.97]
+  hidden: [[64, 64], [128, 128]]
+  lr: [0.0003, 0.001]
+# Disjoint seed sets: a config is chosen on the tuning seeds and judged on seeds that never chose it.
+tuning_seeds: [1000, 1001, 1002]
+final_seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]    # data.seeds.runs
+selection_metric: val_mean_log_return          # mean per-decision log net return of the deterministic policy on validation
+
+sac:                                           # fixed for every variant; SAC defaults except where stated
+  batch_size: 256
+  buffer_size: 100000
+  learning_starts: 1000
+  tau: 0.005
+  train_freq: 1
+  gradient_steps: 1
+  reward_scale: 10.0                            # multiplies the reward during TRAINING only; see preregistration_tier2 §4
+
+training:
+  steps: 250000                                # environment steps per run (set from the timed run, preregistration_tier2 §6)
+  eval_every: 5000                              # checkpoint cadence; the best-on-validation checkpoint is kept
+  workers: 6                                   # parallel processes
+
+sanity:                                        # train/validation only; abort before the test split if any fails; trains for training.steps
+  edge_daily_return: 0.002                     # deterministic daily return of the edge asset
+  edge_asset: XLK
+  noise_daily_vol: 0.01                        # the other risky assets: zero mean, this daily vol
+  n_sessions: 3000                             # ~600 weekly decisions, as long as the real train split
+  start_date: "2000-01-03"                      # synthetic calendar only; no real data is involved
+  seeds: [9000, 9001, 9002]
+  min_edge_weight_fraction_of_cap: 0.85        # mean weight on the edge asset >= 0.85 * cap
+  min_log_return_fraction_of_oracle: 0.75      # mean log return >= 0.75 * the oracle's
+  random_policies: 200
+  random_quantile: 0.5                         # gate: the validation-selected checkpoint beats the MEDIAN random policy (preregistration_tier2 §5)
+  random_quantile_reported: 0.95               # reported, not gating
+  beat_random_variant: V1
+  beat_random_min_seeds: 2                     # of the 3 tuning-disjoint sanity seeds
+
+primary_metrics: ["annualised_return", "sharpe", "max_drawdown", "cvar_95"]
+
+uncertainty:
+  block_length_days: 20
+  block_length_sensitivity: [10, 40]
+  n_bootstrap: 2000
+  ci_level: 0.95
+
+dsr_trials_headline: 40                        # every final run is a trial (4 variants x 10 seeds)
+dsr_trials_all_runs: 136                       # sensitivity: 96 tuning + 40 final runs
+output_dir: data/processed/tier2
+log_dir: logs/tier2

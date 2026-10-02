@@ -5,14 +5,17 @@
 # cannot fix it retroactively (spec §2).
 
 PYTHON ?= .venv/bin/python
+# A ~12 hour run must not be interrupted by the laptop sleeping (macOS); empty elsewhere.
+CAFFEINATE ?= $(shell command -v caffeinate 2>/dev/null && echo -i)
 export PYTHONHASHSEED = 0
 
 .DEFAULT_GOAL := help
 .PHONY: help venv install test test-fast test-causality lint snapshot snapshot-dry \
-        features hmm encoder states tier1 backtest report clean-reports phase-a env-check
+        features hmm encoder states tier1 backtest report clean-reports phase-a env-check \
+        tier2 tier2-sanity tier2-smoke
 
 help:  ## Show this help
-	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
+	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 venv:  ## Create the virtualenv (Python 3.11)
@@ -70,9 +73,19 @@ phase-a: test features hmm encoder states tier1 report  ## Steps 1-4a end to end
 	@echo "Phase A complete. Review against the §0.3 exit criteria before Phase B."
 
 clean-reports:  ## Remove generated figures, tables and logs
-	find reports -type f ! -name '.gitkeep' ! -name 'holdout_access.jsonl' ! -name 'preregistration.md' -delete
+	find reports -type f ! -name '.gitkeep' ! -name 'holdout_access.jsonl' ! -name 'preregistration*.md' -delete
+
+# --- Phase B, step 4c: Tier 2 (SAC) ------------------------------------- #
+tier2:  ## Step 4c: sanity -> tune -> freeze -> final -> single test evaluation -> report (resumable, ~12 h)
+	$(CAFFEINATE) $(PYTHON) scripts/05_train_agents.py
+
+tier2-sanity:  ## Step 4c: only the SAC sanity gates (train/validation only)
+	$(PYTHON) scripts/05_train_agents.py --stage sanity
+
+tier2-smoke:  ## Step 4c: whole pipeline at toy size on the VALIDATION split (never reads test)
+	$(PYTHON) scripts/05_train_agents.py --smoke
 
 # --- Phase B (spec §0.3) -------------------------------------------------- #
-# Deliberately absent: there is no `agents` or `holdout` target. Phase B must
+# Deliberately absent: there is no `holdout` target. Phase B must
 # not be reachable by a single command until Phase A's exit criteria are met
 # and reviewed, and the holdout is evaluated once, by hand, with both gates.

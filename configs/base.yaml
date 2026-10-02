@@ -10,6 +10,7 @@ includes:
   encoder: "configs/encoder.yaml"
   tier1: "configs/experiments/tier1_probes.yaml"
   env: "configs/env.yaml"
+  tier2: "configs/experiments/tier2.yaml"
 
 paths:
   raw: "data/raw"

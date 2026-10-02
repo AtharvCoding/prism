@@ -50,6 +50,7 @@ data/holdout/
 # (D-013), these are the only lasting record of what THIS snapshot produced.
 reports/figures/*
 reports/logs/*
+logs/
 !reports/**/.gitkeep
 
 # Model artefacts
