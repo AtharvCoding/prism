@@ -23,6 +23,7 @@ probe:
   # few thousand training rows). Not to be widened after test-split output exists.
   alpha_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0, 1000000.0, 10000000.0, 100000000.0]
   tune_on: "validation_folds"
+  validation_first_apply_year: 2015   # folds with apply years 2015-2018, all inside train+validation (preregistration §5)
 
 allocator:
   methods: ["mean_variance", "vol_target", "regime_vol_target"]

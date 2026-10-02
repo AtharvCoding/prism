@@ -24,7 +24,13 @@ from typing import Callable
 
 import numpy as np
 
-__all__ = ["BootstrapResult", "stationary_block_bootstrap_ci", "non_overlapping"]
+__all__ = [
+    "BootstrapResult",
+    "stationary_block_bootstrap_ci",
+    "non_overlapping",
+    "bootstrap_paths",
+    "path_ci",
+]
 
 
 @dataclass(frozen=True)
@@ -121,3 +127,32 @@ def non_overlapping(a: BootstrapResult, b: BootstrapResult) -> bool:
     say which one is better, only that the gap is unlikely to be noise.
     """
     return a.ci_high < b.ci_low or b.ci_high < a.ci_low
+
+
+def bootstrap_paths(n: int, block_length: int, n_bootstrap: int, seed: int) -> np.ndarray:
+    """``(n_bootstrap, n)`` stationary-bootstrap index paths, fixed by ``(n, block_length, seed)``.
+
+    The pre-registration (§6) fixes common random numbers: every variant,
+    target and comparison on the test split reuses the SAME resampled days, so
+    a difference between two variants is resampled as a genuine pair rather
+    than as two independent draws. Generating the paths once, here, and
+    applying them to whatever vector is being summarised is what makes that
+    structural instead of a convention a caller could forget.
+    """
+    if n < 2:
+        raise ValueError("need at least 2 observations to bootstrap")
+    rng = np.random.default_rng(seed)
+    return np.stack([_stationary_bootstrap_indices(n, block_length, rng) for _ in range(n_bootstrap)])
+
+
+def path_ci(
+    values: np.ndarray, paths: np.ndarray, *, ci_level: float = 0.95
+) -> tuple[float, float, float]:
+    """``(point, lo, hi)`` for the MEAN of ``values`` under pre-generated ``paths``."""
+    values = np.asarray(values, dtype="float64")
+    if paths.shape[1] != len(values):
+        raise ValueError(f"paths are for n={paths.shape[1]} but values has {len(values)} rows")
+    replicates = values[paths].mean(axis=1)
+    alpha = 1.0 - ci_level
+    lo, hi = np.quantile(replicates, [alpha / 2, 1 - alpha / 2])
+    return float(values.mean()), float(lo), float(hi)

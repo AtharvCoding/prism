@@ -277,3 +277,11 @@ def test_nans_are_dropped_not_filled():
         [0.01, np.nan, 0.01], index=pd.bdate_range("2020-01-01", periods=3)
     )
     np.testing.assert_allclose(cumulative_return(with_gap), 1.01 * 1.01 - 1, rtol=1e-12)
+
+
+def test_a_loss_in_the_first_period_is_a_drawdown():
+    """The running peak starts at the initial NAV, not at the first return."""
+    from prism.backtest.metrics import max_drawdown
+
+    r = pd.Series([-0.10, -0.10, 0.05])
+    assert max_drawdown(r) == pytest.approx(0.9 * 0.9 - 1.0)

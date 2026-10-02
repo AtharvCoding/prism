@@ -67,7 +67,7 @@ phase-a: test features hmm encoder states tier1 report  ## Steps 1-4a end to end
 	@echo "Phase A complete. Review against the §0.3 exit criteria before Phase B."
 
 clean-reports:  ## Remove generated figures, tables and logs
-	find reports -type f ! -name '.gitkeep' ! -name 'holdout_access.jsonl' -delete
+	find reports -type f ! -name '.gitkeep' ! -name 'holdout_access.jsonl' ! -name 'preregistration.md' -delete
 
 # --- Phase B (spec §0.3) -------------------------------------------------- #
 # Deliberately absent: there is no `agents` or `holdout` target. Phase B must

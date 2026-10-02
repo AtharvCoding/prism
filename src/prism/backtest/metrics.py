@@ -136,7 +136,9 @@ def drawdown_series(returns: pd.Series) -> pd.Series:
     curve = equity_curve(returns)
     if curve.empty:
         return curve
-    peak = curve.cummax()
+    # The running peak starts at the initial NAV of 1.0, not at the first return:
+    # otherwise a loss in the very first period is never counted as a drawdown.
+    peak = curve.cummax().clip(lower=1.0)
     return curve / peak - 1.0
 
 

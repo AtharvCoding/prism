@@ -508,6 +508,8 @@ class ProbeConfig(_Frozen):
     classification: str
     alpha_grid: list[float] = Field(min_length=1)
     tune_on: Literal["validation_folds"]
+    #: First apply year of the annual validation folds (preregistration §5: 2015..2018).
+    validation_first_apply_year: int = Field(ge=2000)
 
 
 class AllocatorConfig(_Frozen):
