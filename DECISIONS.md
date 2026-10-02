@@ -850,6 +850,20 @@ the LSTM gate fails, and the pre-registration says so (Hyp-3). If the gate fails
 the LSTM is redesigned or dropped before Phase B per §13.1; carrying step 3
 forward changes the order of work, not the standard it is held to.
 
+### D-030 · Code version behind the pre-registered state files
+**Date:** 2026-10-02 · **Status:** recorded
+
+The state files whose SHA-256 values are listed in
+`reports/tables/preregistration.md` §2 (committed as `242053811b9e04a667e541394b031f0c96a20035`)
+were built by the code at commit **`444509807d75bec1698381be0a699d634dedc692`**
+("Steps 2 and 3b: HMM pinned to H1/K=2, state assembly, diagnostics"), run as
+`scripts/03b_build_states.py --with-oracle` against the accepted H1/K=2
+walk-forward posteriors and the step-3 encoder latents. The pre-registration
+was committed first, but the working tree it described was that code; this
+entry fixes the correspondence. Anything that changes `src/prism/state.py`,
+the 03b script, the HMM code or `configs/hmm.yaml` after this commit changes the
+code version and requires an amendment to the pre-registration.
+
 ---
 
 ## Gate decisions (Tier 1)
