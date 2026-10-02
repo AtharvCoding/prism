@@ -1044,7 +1044,7 @@ silently picked.
    projection is the identity whenever the softmax is feasible, so the map is smooth except where the cap binds; where it binds
    the excess is shared in equal additive amounts across every line with slack (cash is not singled out). The zero action is equal
    weight over all 14 lines (about 7% each, cash included). `logit_scale = 3` is a design constant, not tuned; it sets how
-   concentrated the policy can get (at 3, one asset is about 20x another's weight at the action extremes).
+   concentrated the policy can get (at 3, the logit range is +/-3, so the extreme weight ratio before the cap is e^6, about 400x).
 4. **Portfolio block** (appended to the variant's state vector, built by the env, not by `state.py`): the `n+1` drifted current
    weights and the **mean** one-way turnover per step so far. Two deviations from spec §10's "weights, time since last
    rebalance, cumulative turnover": (a) *time since last rebalance is omitted*: with a decision every week it is constant, and a
@@ -1084,3 +1084,14 @@ name in `configs/env.yaml`, and none is tuned:
 
 Which variants run in Tier 2, and with what values, is a step 4c question: a pre-registration is needed before any agent is scored on the
 test split, and a reward variant added after seeing test output would be a forking path.
+
+### D-037 · Code version behind the step 4b results
+**Date:** 2026-10-02 · **Status:** recorded
+
+`reports/tables/env_check.md` (21 checks, all PASS, train split only) was produced by `scripts/04b_env_check.py` run as
+`PYTHONHASHSEED=0 python scripts/04b_env_check.py` (`make env-check`) on the code at commit
+**`23c9423c209584e8952bc3b60b44408c933f7f81`** ("Step 4b: environment, cost model, ..."), with the state files `V1`, `V2`, `V4` and
+`C4` whose SHA-256 values are in the run manifest in `reports/logs/`. The run happened with those files uncommitted (the manifest
+records a dirty tree) and the commit followed with no change to `src/prism/env/`, `src/prism/config.py`, `configs/env.yaml` or the
+script in between; only the README, Makefile, pyproject pin, `DECISIONS.md` and a test were touched after the final run. C4 itself
+was built by commit `415947d`; `03b_build_states.py --phase-b-only` rebuilds it byte-identically.
