@@ -33,6 +33,7 @@ __all__ = [
     "EncoderConfig",
     "HMMConfig",
     "Tier1Config",
+    "EnvConfig",
     "UniverseSpec",
     "load_config",
     "FORWARD_TARGET_HORIZONS",
@@ -556,6 +557,48 @@ class Tier1Config(_Frozen):
 
 
 # --------------------------------------------------------------------------- #
+# env.yaml (Phase B)
+# --------------------------------------------------------------------------- #
+class ActionConfig(_Frozen):
+    logit_scale: float = Field(gt=0)
+
+
+class CostConfig(_Frozen):
+    per_side_bps: float = Field(ge=0)
+    slippage_vol_coef: float = Field(ge=0)
+    vol_window: int = Field(ge=2)
+    sensitivity_bps: list[float]
+
+    @model_validator(mode="after")
+    def _sensitivity_is_scalable(self) -> CostConfig:
+        if self.per_side_bps <= 0:
+            raise ValueError("per_side_bps must be positive: sensitivity scales by bps / per_side_bps")
+        if any(b < 0 for b in self.sensitivity_bps):
+            raise ValueError("sensitivity_bps must be non-negative")
+        return self
+
+
+class RewardConfig(_Frozen):
+    name: Literal["log_return_net", "dsr", "mv_penalty", "drawdown_penalty"]
+    mv_lambda: float = Field(ge=0)
+    drawdown_lambda: float = Field(ge=0)
+    dsr_eta: float = Field(gt=0, lt=1)
+
+
+class EpisodeConfig(_Frozen):
+    train_length_decisions: int = Field(ge=2)
+    start_weights: Literal["cash"]
+
+
+class EnvConfig(_Frozen):
+    universe: str
+    action: ActionConfig
+    costs: CostConfig
+    reward: RewardConfig
+    episode: EpisodeConfig
+
+
+# --------------------------------------------------------------------------- #
 # base.yaml
 # --------------------------------------------------------------------------- #
 class DeterminismConfig(_Frozen):
@@ -573,6 +616,7 @@ class Config(_Frozen):
     hmm: HMMConfig
     encoder: EncoderConfig
     tier1: Tier1Config
+    env: EnvConfig
     #: Absolute path of the repository these configs were loaded from.
     root: Path
 
@@ -609,6 +653,8 @@ class Config(_Frozen):
             )
         if self.tier1.universe not in self.data.universes:
             raise ValueError(f"tier1.universe={self.tier1.universe!r} is not a known universe")
+        if self.env.universe not in self.data.allocatable:
+            raise ValueError(f"env.universe={self.env.universe!r} has no allocatable asset list")
         # §3.2: the models are fitted on a window that ends before the
         # allocation universe's training data begins.
         fit_end = self.data.fit_early(self.hmm.fit.universe)[1]

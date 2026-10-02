@@ -2,13 +2,14 @@
 # Spec §1, §3. Every script resolves its settings through this file and writes
 # the resulting config hash into its run manifest.
 project: prism
-phase: A                      # spec §0.3 — Phase B is out of scope
+phase: B                      # Phase A accepted; Phase B (spec §11-§13.2) in scope — DECISIONS.md D-032
 
 includes:
   data: "configs/data.yaml"
   hmm: "configs/hmm.yaml"
   encoder: "configs/encoder.yaml"
   tier1: "configs/experiments/tier1_probes.yaml"
+  env: "configs/env.yaml"
 
 paths:
   raw: "data/raw"

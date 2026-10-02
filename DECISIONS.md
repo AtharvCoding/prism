@@ -990,3 +990,97 @@ and the original `data/processed/tier1/` are kept as the results of record**; th
 pre-registration lists, unless `--allow-overwrite-preregistered` is passed. `--phase-b-only` builds C4 alone and
 touches no Tier 1 file; it is the normal way to rebuild C4. Because O1 is listed, `--with-oracle` now needs the flag.
 Anything that flag overwrites invalidates those hashes and needs an amendment first.
+
+### D-034 · Transaction cost: 5 bps per side on each risky leg, plus volatility-scaled slippage; not the Tier 1 allocator's convention
+**Date:** 2026-10-02 · **Decided by:** principal investigator (convention); implementation choices mine · **Status:** implemented, step 4b
+
+**Convention (decided).** `cost = sum over risky i of |dw_i| * (per_side_bps/1e4 + slippage_vol_coef * sigma_i)`, as a
+fraction of portfolio value, where `dw` is the trade from the weights drifted to the execution close to the target.
+The per-side term is charged on **each leg's traded notional**; the cash line is free. This is the literal spec §11 /
+§7.5 reading: a round trip into and out of a position costs 10 bps of that position at 5 bps per side.
+
+**It differs from the Tier 1 allocator.** `prism.probes.allocator.net_returns` charged `bps * 0.5 * sum|dw|` with cash
+included. The two agree on a trade between cash and risky assets and differ by exactly **2x on a risky-to-risky swap**
+(env: 10 bps for a full swap; allocator: 5 bps). Consequences: (a) Tier 1 allocator and benchmark net numbers are *not*
+comparable to env numbers and must not be mixed in one table; (b) any Phase B benchmark is to be re-run through the env
+cost model (the env's `run_episode` with a fixed policy does it). The Tier 1 results were not changed; they are correct
+under the convention they were pre-registered with. `tests/test_costs.py::test_a_swap_costs_twice_the_tier1_allocator_convention`
+pins the relationship.
+
+**Slippage (my choice, not in the spec beyond "scaled by prevailing volatility").** `slippage = slippage_vol_coef * sigma_i`
+with `sigma_i` the trailing 20-session standard deviation of asset i's daily simple returns known at the execution
+close (causal), `slippage_vol_coef = 0.02`: 2 bps per unit traded at a 1% daily vol, 8 bps at 4%. Chosen as
+plausible for liquid ETFs and not tuned on any split; it is one knob in `configs/env.yaml`, and the sensitivity grid
+below is how its effect is reported. Cost on the first step from cash is a real cost (initiation is a trade).
+
+**Sensitivity grid (spec §11).** 0 / 5 / 10 / 20 bps per side, scaling **both** terms by `bps / per_side_bps` (so 0 is
+frictionless and 10 doubles slippage too), rather than adding a second grid. A reader who wants the proportional term
+alone should know slippage moves with it.
+
+**Scale seen on the train split** (`reports/tables/env_check.md`, random action weights, all-train episode): a
+near-constant mix pays ~78 bps of NAV in total costs over 550 weeks at the 5 bps level; a policy that re-draws weights
+every week (mean one-way turnover 0.63 per step) pays ~45% of NAV and ends below 1.3 against 1.98 gross. Costs will dominate any
+high-turnover policy; this is the intended pressure on the agents.
+
+### D-035 · Environment design (step 4b)
+**Date:** 2026-10-02 · **Status:** implemented · open items flagged below
+
+Most of the §11 text is followed literally; these are the choices it left open, each of them recorded rather than
+silently picked.
+
+1. **One step is one weekly decision** (D-001), with the daily path simulated *inside* the step. The decision schedule,
+   execution lag (1 session) and holding periods come from `prism.backtest.engine.holding_periods`, the single statement of
+   the observe -> decide -> execute -> earn contract. Decisions fall on the last session of each calendar week on or before
+   Friday (a Thursday when Friday is a holiday; `tests/test_env.py::test_a_holiday_friday_moves_the_decision_to_thursday`).
+   A step's reward window is `(e_k, e_{k+1}]`, strictly after the decision close `d_k`; the drift between `d_k` and `e_k`
+   belongs to the previous step, and the trade at `e_k` starts from weights drifted to `e_k`, not to `d_k`. A spike test
+   asserts each one-session return lands in exactly the step whose window contains it, and mutation checks confirmed that
+   starting the window one day early, dropping the cost, trading from the wrong weights, or dropping drift each fail a test.
+2. **Assets: the 13 allocatable risky assets plus cash** (`data.allocatable.B`), as the Tier 1 allocator. **SPY is not an
+   asset**: it is the benchmark and a signal, overlapping the nine sectors.
+3. **Action to weights.** `a in [-1, 1]^(n+1)` -> `softmax(3 * a)` -> Euclidean projection onto {0 <= w_i <= 0.35 for risky,
+   0 <= w_cash <= 1, sum = 1}. Long-only, the cap and full investment hold by construction (D-001), no penalty. **The cap
+   applies to risky assets and not to cash**, the allocator's interpretation: a policy must be able to hold mostly cash. The
+   projection is the identity whenever the softmax is feasible, so the map is smooth except where the cap binds; where it binds
+   the excess is shared in equal additive amounts across every line with slack (cash is not singled out). The zero action is equal
+   weight over all 14 lines (about 7% each, cash included). `logit_scale = 3` is a design constant, not tuned; it sets how
+   concentrated the policy can get (at 3, one asset is about 20x another's weight at the action extremes).
+4. **Portfolio block** (appended to the variant's state vector, built by the env, not by `state.py`): the `n+1` drifted current
+   weights and the **mean** one-way turnover per step so far. Two deviations from spec §10's "weights, time since last
+   rebalance, cumulative turnover": (a) *time since last rebalance is omitted*: with a decision every week it is constant, and a
+   constant input is a degenerate feature (§4.3 treats a constant feature as a hard failure); (b) *cumulative turnover is divided by the
+   step count*, so it stays in [0, 1] and does not leak the position in the episode. `state.py`'s date-indexed `portfolio_block`
+   hook cannot carry any of this, because it depends on the agent's own actions; it stays as the Phase A hook, unused.
+5. **Episodes.** Training: random start inside the split and 104 decisions (about two years), ended by *truncation* so the
+   next observation exists for bootstrapping; evaluation: one fixed episode over the whole split ending in *termination* at its
+   last decision. The portfolio starts in cash. Splits are cut to the **effective (embargo-purged) range** so no reward window
+   crosses an embargo or the next split; the holdout is refused by the builder (`PermissionError`), and `assert_not_holdout` runs on
+   every built dataset.
+6. **Cash return** is the prior session's `^IRX` close / 100 / 252, as in the allocator (asserted equal in the tests), so no rate is used
+   before it was published.
+7. **Observations are the variant's already-scaled state** (the train-split scaler of step 3b) in float32; `Box(-inf, inf)` bounds
+   (gymnasium's checker warns about that; the warning is left visible).
+
+**Known accounting difference from the Tier 1 simulator.** `allocator.simulate` earns the first execution close's day return
+while still in cash; the env starts earning after its first trade. The tests and the check script compare from the following
+session; the difference is one day of cash return at episode start.
+
+**No look-ahead is tested, and the test is tested.** Every state, return and volatility row after what a step may read is
+replaced with garbage; observations and rewards must be bit-identical. The identical check fails on a deliberately leaky
+environment that reads three sessions ahead (spec §7.1: a causality test that never fails is worthless).
+
+### D-036 · Reward variants and their parameters
+**Date:** 2026-10-02 · **Status:** implemented; the default is the only reward intended for headline results
+
+Default `log_return_net`: `log(1 + net return)` of the holding period, net of the cost paid to reach the weights (so costs are in the
+reward by construction). Spec §11 lists four variants and says reward choice is a documented experimental factor, so all four exist, selected by
+name in `configs/env.yaml`, and none is tuned:
+
+* `dsr`: Moody & Saffell differential Sharpe ratio on the net period return, moments `A, B` with rate `eta = 0.05`, evaluated before the
+  update, zero while the variance estimate is degenerate. Hand-computed in `tests/test_env.py`.
+* `mv_penalty`: log net return minus `lambda * sum (r_t - mean)^2` over the period's daily portfolio returns, `lambda = 1.0`. (Realised
+  variance, not annualised; at a typical weekly variance of about 5e-4 the penalty is a fifth of a typical weekly return.)
+* `drawdown_penalty`: log net return minus `lambda * DD`, `DD = 1 - NAV/peak NAV` within the episode, `lambda = 0.02`.
+
+Which variants run in Tier 2, and with what values, is a step 4c question: a pre-registration is needed before any agent is scored on the
+test split, and a reward variant added after seeing test output would be a forking path.

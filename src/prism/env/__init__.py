@@ -1,23 +1,15 @@
-"""RL environment — **PHASE B, DEFERRED**. Spec §0.3, §11.
+"""RL environment and cost model — **PHASE B**. Spec §11, build step 4b.
 
-Not implemented, deliberately. Per §0.3: "Do not implement
-``src/prism/env/``, ``src/prism/agents/``, or any SAC code in Phase A."
+* :mod:`prism.env.costs` — per-side proportional cost plus volatility-scaled slippage
+* :mod:`prism.env.actions` — action -> long-only, capped, fully-invested weights
+* :mod:`prism.env.rewards` — ``log_return_net`` (default), ``dsr``, ``mv_penalty``, ``drawdown_penalty``
+* :mod:`prism.env.data` — the pre-built state / return arrays and the holding-period schedule
+* :mod:`prism.env.portfolio_env` — the Gymnasium environment
 
-This package exists so that Phase A's interfaces anticipate the environment
-rather than having to be reshaped for it later. Two interface commitments are
-already honoured upstream:
-
-* :mod:`prism.state` accepts an optional **portfolio block** (current weights,
-  time since last rebalance, cumulative turnover) — wired but unused in Phase
-  A. Without current weights an agent cannot reason about transaction costs,
-  which was design gap D1.
-* Every state variant shares one index and one scaling policy, so the env can
-  hold a pre-built state array and a pre-built return array and never index
-  beyond the current step (§11).
-
-Phase A must end and be reviewed against the §0.3 exit criteria before any of
-this is written.
+``PortfolioEnv`` is imported lazily by name (``from prism.env.portfolio_env
+import PortfolioEnv``) so that importing the cost model does not require
+``gymnasium``.
 """
 
 PHASE = "B"
-STATUS = "deferred"
+STATUS = "implemented"

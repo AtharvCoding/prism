@@ -19,32 +19,33 @@ what is built and how to run it.
 
 ---
 
-## Current status — Phase A, Step 3 complete
+## Current status — Phase A accepted, Phase B step 4b complete
 
-Only **Phase A** is in scope (spec §0.3). `src/prism/env/` and
-`src/prism/agents/` are docstring stubs; `gymnasium` and
-`stable-baselines3` are **not installed**, and `prism.config` raises at load
-time if either appears while `phase: A`.
+Phase A (steps 0–4a) is accepted; the Phase A-only restriction in spec §0.3 is
+lifted (DECISIONS.md D-032). Both Tier 1 component gates failed, so the LSTM
+and HMM are kept in Phase B only as the comparisons the research question
+needs. `gymnasium` is installed; `stable-baselines3` is not yet (step 4c).
+`src/prism/agents/` is still a docstring stub.
 
 | Step | Scope | Status |
 |---|---|---|
-| 0 | Repo, config, snapshot, splits, **tests** | complete |
-| 1 | Dataset expansion: two universes, macro, cross-sectional, QA | complete |
-| 2 | HMM rebuild (fit on Universe A) | complete |
-| **3** | Encoder rebuild (fit on Universe A) | **complete — awaiting review** |
-| 3b | `state.py` — all nine variants | not started |
-| 4a | Tier 1 ablation + Phase A report | not started |
-| — | **Phase A ends — review** | — |
-| 4b–5 | Environment, SAC, Tier 2, holdout | **Phase B, deferred** |
+| 0–3b | Repo, data, HMM, encoder, state assembly | complete |
+| 4a | Tier 1 ablation + Phase A report | complete (both gates fail) |
+| **4b** | **Environment + costs** (`src/prism/env/`) | **complete — awaiting review** |
+| 4c | SAC + Tier 2 ablation (V1, V2, V4, C4) | not started |
+| 5 | Final report + holdout | not started |
+
+Phase B state variants: V1, V2, V4 and the control **C4** (V2 plus the C2
+threshold-regime columns). Check the environment on the real train split with
+`make env-check` (writes `reports/tables/env_check.md`).
 
 ```
-267 passed, 10 skipped, 7 xfailed
+351 passed
 ```
 
-Skips are Phase B (`test_costs.py`, `test_env.py`). The xfails are now
-exclusively step 3b's contracts (state assembly); every HMM and encoder
-xfail is a real, passing test. They are `strict=True`, so when a step lands
-its tests turn XPASS — a failure — and the marker must be removed.
+No skips and no xfails remain: every spec §7 contract is a real test, and the
+environment, cost and state tests run on synthetic paths with hand-computed
+answers.
 
 **Step 1 deliverables:** the real snapshot (2026-10-01, 23 tickers,
 1990-01-02 .. 2026-09-30); both universes built, truncated to the non-holdout

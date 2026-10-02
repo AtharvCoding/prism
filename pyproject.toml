@@ -9,9 +9,8 @@ description = "Probabilistic Regime-Informed Systematic Management — regime-aw
 requires-python = "==3.11.*"
 readme = "README.md"
 
-# Phase A dependencies only. gymnasium and stable-baselines3 are DEFERRED to
-# Phase B (spec §2) and must not be added here until Phase A's exit criteria
-# in §0.3 are met.
+# Phase B opened with DECISIONS.md D-032: gymnasium is added for the step 4b
+# environment. stable-baselines3 stays out until step 4c (SAC).
 dependencies = [
     "numpy==2.1.3",
     "pandas==3.0.6",
@@ -29,6 +28,7 @@ dependencies = [
     "tqdm==4.70.1",
     "rich==15.0.0",
     "statsmodels==0.15.0",
+    "gymnasium==1.3.0",
 ]
 
 [project.optional-dependencies]

@@ -9,7 +9,7 @@ export PYTHONHASHSEED = 0
 
 .DEFAULT_GOAL := help
 .PHONY: help venv install test test-fast test-causality lint snapshot snapshot-dry \
-        features hmm encoder states tier1 backtest report clean-reports phase-a
+        features hmm encoder states tier1 backtest report clean-reports phase-a env-check
 
 help:  ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -56,6 +56,9 @@ states:  ## Step 3b: assemble all nine state variants
 
 tier1:  ## Step 4a: run the Tier 1 representation ablation
 	$(PYTHON) scripts/04_tier1_ablation.py
+
+env-check:  ## Step 4b: acceptance check of the environment on the train split
+	$(PYTHON) scripts/04b_env_check.py
 
 backtest:  ## Step 4a: backtest the allocator variants
 	$(PYTHON) scripts/06_backtest.py
