@@ -864,6 +864,32 @@ entry fixes the correspondence. Anything that changes `src/prism/state.py`,
 the 03b script, the HMM code or `configs/hmm.yaml` after this commit changes the
 code version and requires an amendment to the pre-registration.
 
+### D-031 · Code version behind the Tier 1 results
+**Date:** 2026-10-02 · **Status:** recorded
+
+The Tier 1 results (`reports/tier1_report.md`, `reports/tables/tier1_*.csv`, the
+gate decisions below) were produced by the code at commit
+**`77cc6bcd2754ec636bde4e92b98238f2a790e0b5`** ("Step 4a part 2: run the Tier 1
+ablation as pre-registered; both gates fail"; parent `b99f4aa`), run as
+`PYTHONHASHSEED=0 python scripts/04_tier1_ablation.py` (`make tier1`) against the
+state files whose SHA-256 values are fixed in `reports/tables/preregistration.md`
+(commit `242053811b9e04a667e541394b031f0c96a20035`), with state-building code at
+`444509807d75bec1698381be0a699d634dedc692` (D-030).
+
+Two things to know about that correspondence. The run itself happened with those
+files uncommitted, so the run manifest in `reports/logs/` records the git tree as
+dirty; the commit was made immediately afterwards with no edits in between, so
+`77cc6bcd2754ec636bde4e92b98238f2a790e0b5` contains exactly the code that ran. And the stored results were
+re-generated once after the last code change (moving the first validation year
+into config) and reproduced the gates, probe metrics and allocator metrics
+byte-for-byte, so the results do not depend on which of the two final runs is
+read.
+
+Any change to `src/prism/probes/`, `src/prism/analysis/`, `src/prism/backtest/`,
+`src/prism/reporting/`, `scripts/04_tier1_ablation.py`, `configs/experiments/tier1_probes.yaml`
+or the state-building code after this commit changes the code version behind these
+results and needs an amendment to the pre-registration before any re-run is reported.
+
 ---
 
 ## Gate decisions (Tier 1)
