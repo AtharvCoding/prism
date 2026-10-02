@@ -1166,3 +1166,18 @@ four processes ≈ 700 aggregate and eight ≈ 660-800, so **six workers**. A fu
 would have crossed 16 h under that derating; checkpoints every 5 000 steps (50 per run) cost 0.3 s each, so the finer early grid is free. Run:
 `make tier2` (it is resumable: re-running skips finished runs).
 
+
+### D-041 · Code version behind the step 4c pre-registration and sanity record
+**Date:** 2026-10-03 · **Status:** recorded
+
+`reports/tables/preregistration_tier2.md` was committed with the step 4c code as **`e0dfc11062569dd49c2068754534b0fb7c63e622`** ("Step 4c: SAC pipeline,
+Tier 2 pre-registration, sanity gates, make tier2"), before any tuning or final run and before the test split was read by this step. The sanity record
+(`data/processed/tier2/sanity.json`, rendered in `reports/tables/tier2_sanity.md`) was produced by `scripts/05_train_agents.py --stage sanity` with the
+working tree uncommitted; between that run's start and the commit only the sanity *report text* (`prism.reporting.tier2_report`), the Makefile and the README
+changed, not `prism.agents.sac`, `.jobs`, `.sanity`, the env or `configs/experiments/tier2.yaml`. The earlier 300 000-step sanity run (attempt 2) is kept
+under `data/processed/tier2/sanity_300k_cadence10k.json` (untracked) and is in the attempt table. `make tier2-smoke` exercised the full pipeline (tune, freeze,
+final, evaluate, report, resume, abort-on-failed-sanity) on the validation split; the 379-test suite passes. The full run is the user's to start: `make tier2`.
+
+Anything that changes `src/prism/agents/`, `src/prism/analysis/tier2.py`, `src/prism/env/`, `src/prism/reporting/tier2_report.py`, `scripts/05_train_agents.py`,
+`configs/experiments/tier2.yaml` or the four state files after this commit changes the code version behind the Tier 2 results and needs an amendment to the
+pre-registration (appended, committed) before the run is reported; a change to the pre-registration itself is refused by the runner until it is committed.
