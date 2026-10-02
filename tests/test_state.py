@@ -301,3 +301,60 @@ def test_v1_prime_window_is_explicit_and_overrides_the_config_default(cfg, small
     assert explicit.frame.shape[1] == n_base + 10 * n_base
     assert explicit.index[0] == small_features.frame.index[9]
     assert explicit.schema_hash != default.schema_hash
+
+
+# --------------------------------------------------------------------------- #
+# Phase B control C4 = V2 + C2's threshold-regime columns (DECISIONS.md D-032)
+# --------------------------------------------------------------------------- #
+def test_c4_is_v2_plus_the_c2_threshold_columns(cfg, small_features, fitted_scaler, full_artifacts):
+    """C4 isolates whether HMM posteriors matter beyond a threshold once a temporal
+    model is present: it must be exactly V2's columns followed by C2's regime
+    columns, with every block byte-identical to the one the sibling variant carries."""
+    v1 = build_state(small_features, cfg, "V1", scaler=fitted_scaler)
+    v2 = build_state(small_features, cfg, "V2", artifacts=full_artifacts, scaler=fitted_scaler)
+    c2 = build_state(small_features, cfg, "C2", artifacts=full_artifacts, scaler=fitted_scaler)
+    c4 = build_state(small_features, cfg, "C4", artifacts=full_artifacts, scaler=fitted_scaler)
+
+    latent_cols = list(full_artifacts.latents.columns)
+    regime_cols = list(full_artifacts.threshold_states.columns)
+    assert c4.columns == [*v1.columns, *latent_cols, *regime_cols]
+    pd.testing.assert_frame_equal(c4.frame[latent_cols], v2.frame[latent_cols])
+    pd.testing.assert_frame_equal(c4.frame[regime_cols], c2.frame[regime_cols])
+    pd.testing.assert_frame_equal(c4.frame[list(v1.columns)], v1.frame)
+    assert c4.schema_hash not in {v2.schema_hash, c2.schema_hash}
+
+
+def test_c4_carries_no_hmm_information(cfg, small_features, fitted_scaler):
+    """C4's regime columns come from the threshold rule only. Supplying wildly
+    different HMM posteriors must not change C4 by a single value."""
+    idx = small_features.frame.index
+    base = dict(
+        latents=_latents_like(idx, 4, seed=1), threshold_states=_one_hot_like(idx, 2, seed=4),
+    )
+    a = build_state(
+        small_features, cfg, "C4", scaler=fitted_scaler,
+        artifacts=StateArtifacts(posteriors=_posteriors_like(idx, 2, seed=10), **base),
+    )
+    b = build_state(
+        small_features, cfg, "C4", scaler=fitted_scaler,
+        artifacts=StateArtifacts(posteriors=_posteriors_like(idx, 2, seed=11), **base),
+    )
+    pd.testing.assert_frame_equal(a.frame, b.frame)
+
+
+def test_c4_is_phase_b_only_and_never_a_tier1_variant(cfg):
+    """The Tier 1 pre-registration fixed cfg.tier1.variants; C4 must not leak into it."""
+    from prism.state import PHASE_B_VARIANTS
+
+    assert PHASE_B_VARIANTS == ("C4",)
+    assert "C4" not in cfg.tier1.variants
+    assert "C4" not in cfg.tier1.diagnostic_variants
+
+
+def test_c4_names_exactly_which_artifact_is_missing(cfg, small_features, fitted_scaler, full_artifacts):
+    no_threshold = StateArtifacts(latents=full_artifacts.latents)
+    with pytest.raises(MissingArtifactError, match="threshold_states"):
+        build_state(small_features, cfg, "C4", artifacts=no_threshold, scaler=fitted_scaler)
+    no_latents = StateArtifacts(threshold_states=full_artifacts.threshold_states)
+    with pytest.raises(MissingArtifactError, match="latents"):
+        build_state(small_features, cfg, "C4", artifacts=no_latents, scaler=fitted_scaler)

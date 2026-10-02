@@ -48,12 +48,12 @@ from prism.probes import tier1 as t1  # noqa: E402
 from prism.splits import build_split_plan  # noqa: E402
 from prism.utils.calendar import rebalance_dates  # noqa: E402
 from prism.utils.hashing import hash_object, make_run_id, sha256_file, write_manifest  # noqa: E402
+from prism.utils.prereg import PREREG, preregistered_hashes  # noqa: E402
 from prism.utils.logging import configure_logging, get_logger  # noqa: E402
 from prism.utils.seeding import seed_everything  # noqa: E402
 
 _log = get_logger(__name__)
 
-PREREG = "reports/tables/preregistration.md"
 PREREG_SEED = 20260101
 REGIME_VARIANTS = ("V3", "V4", "C2", "C3", "O1")
 REPORTABLE = ("V1", "V1p", "V2", "V3", "V4", "C1", "C2", "C3")
@@ -76,16 +76,44 @@ def _jsonable(o):
 # --------------------------------------------------------------------------- #
 # 0. inputs
 # --------------------------------------------------------------------------- #
+#: O1's smoothed-HMM refit is not byte-reproducible (hmmlearn forward-backward
+#: differs between runs at ~2e-11), and the original file was overwritten.
+#: Pre-registration Amendment 1 replaces its exact hash with this check: O1 must
+#: match a frozen reference copy (whose own SHA-256 IS verified exactly) to
+#: within O1_TOLERANCE. O1 is diagnostic-only and in no gate.
+O1_NAME = "states/O1.parquet"
+O1_REFERENCE = "states/O1.amendment1.parquet"
+O1_TOLERANCE = 1e-9
+
+
+def _verify_o1(processed: Path) -> str:
+    cur, ref = pd.read_parquet(processed / O1_NAME), pd.read_parquet(processed / O1_REFERENCE)
+    if not (cur.index.equals(ref.index) and list(cur.columns) == list(ref.columns)):
+        raise RuntimeError("O1 differs from its Amendment 1 reference in index or columns")
+    worst = float(np.abs(cur.to_numpy("float64") - ref.to_numpy("float64")).max())
+    if not worst <= O1_TOLERANCE:
+        raise RuntimeError(f"O1 differs from its Amendment 1 reference by {worst:.3e} > {O1_TOLERANCE:.0e}")
+    return sha256_file(processed / O1_NAME)
+
+
 def verify_inputs(cfg: Config) -> dict[str, str]:
-    """Abort unless every input's SHA-256 equals the value recorded in the pre-registration."""
-    text = (cfg.root / PREREG).read_text(encoding="utf-8")
-    expected = {name: h for h, name in re.findall(r"^([0-9a-f]{64})  (\S+)$", text, flags=re.M)}
+    """Abort unless every input matches the pre-registration.
+
+    Exact SHA-256 for every listed file except O1 (see :data:`O1_NAME`), which is
+    checked numerically against its frozen Amendment 1 reference.
+    """
+    expected = preregistered_hashes(cfg.root)
     if len(expected) < 14:
         raise RuntimeError(f"found only {len(expected)} input hashes in {PREREG}; expected 14")
+    if O1_REFERENCE not in expected:
+        raise RuntimeError(f"{PREREG} lists no hash for {O1_REFERENCE} (Amendment 1)")
+    processed = cfg.path("processed")
     mismatched = []
     for name, want in expected.items():
-        got = sha256_file(cfg.path("processed") / name)
-        if got != want:
+        got = _verify_o1(processed) if name == O1_NAME else sha256_file(processed / name)
+        if name == O1_NAME:
+            expected[name] = got
+        elif got != want:
             mismatched.append((name, want[:12], got[:12]))
     if mismatched:
         raise RuntimeError(

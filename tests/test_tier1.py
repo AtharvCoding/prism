@@ -250,3 +250,92 @@ def test_regime_leg_equals_plain_vol_target_when_there_is_no_regime_column():
     stressed = al.regime_vol_target_weights(sigma_hat, pd.Series(1.0, index=dates), inputs, params)
     assert (stressed["CASH"] >= vt["CASH"]).all() and (stressed["CASH"] > vt["CASH"]).any()
     al.check_weights("vt", vt, params)
+
+
+# --------------------------------------------------------------------------- #
+# pre-registration integrity (DECISIONS.md D-033)
+# --------------------------------------------------------------------------- #
+def _load_script(name: str):
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "scripts" / name
+    spec = importlib.util.spec_from_file_location(f"_script_{path.stem}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _stub_cfg(root, variants=("V1", "V2"), diagnostic=("O1",)):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        root=root, path=lambda key: root / "data" / "processed",
+        tier1=SimpleNamespace(variants=list(variants), diagnostic_variants=list(diagnostic)),
+    )
+
+
+def _write_prereg(root, entries: dict[str, str]):
+    path = root / "reports" / "tables" / "preregistration.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"{h}  {name}" for name, h in entries.items()]
+    path.write_text("```\n" + "\n".join(lines) + "\n```\n", encoding="utf-8")
+
+
+def test_preregistered_hashes_parses_the_hash_table(tmp_path):
+    from prism.utils.prereg import preregistered_hashes
+
+    _write_prereg(tmp_path, {"states/V1.parquet": "a" * 64, "hmm_posteriors.parquet": "b" * 64})
+    assert preregistered_hashes(tmp_path) == {
+        "states/V1.parquet": "a" * 64, "hmm_posteriors.parquet": "b" * 64,
+    }
+
+
+def test_state_builder_refuses_to_overwrite_a_preregistered_file(tmp_path):
+    build = _load_script("03b_build_states.py")
+    states = tmp_path / "data" / "processed" / "states"
+    states.mkdir(parents=True)
+    (states / "V1.parquet").write_bytes(b"x")
+    (states / "V2.parquet").write_bytes(b"x")
+    _write_prereg(tmp_path, {"states/V1.parquet": "a" * 64})
+    cfg = _stub_cfg(tmp_path)
+    # V1 is pinned and present; V2 is present but not pinned; schema.json is absent.
+    assert build.protected_targets(cfg, with_oracle=False) == ["states/V1.parquet"]
+    # O1 is only in scope with --with-oracle.
+    _write_prereg(tmp_path, {"states/V1.parquet": "a" * 64, "states/O1.parquet": "c" * 64})
+    (states / "O1.parquet").write_bytes(b"x")
+    assert "states/O1.parquet" not in build.protected_targets(cfg, with_oracle=False)
+    assert "states/O1.parquet" in build.protected_targets(cfg, with_oracle=True)
+    # A file that does not exist yet cannot be overwritten, pinned or not.
+    (states / "V1.parquet").unlink()
+    assert "states/V1.parquet" not in build.protected_targets(cfg, with_oracle=False)
+
+
+def _o1_frame(shift: float = 0.0) -> pd.DataFrame:
+    idx = pd.bdate_range("2020-01-01", periods=6)
+    return pd.DataFrame({"f": np.arange(6.0), "state_0": np.linspace(0.1, 0.9, 6) + shift}, index=idx)
+
+
+def _write_o1_pair(tmp_path, shift):
+    processed = tmp_path / "data" / "processed" / "states"
+    processed.mkdir(parents=True)
+    _o1_frame().to_parquet(processed / "O1.amendment1.parquet")
+    _o1_frame(shift).to_parquet(processed / "O1.parquet")
+    return tmp_path / "data" / "processed"
+
+
+def test_o1_check_tolerates_float_noise_but_not_a_real_change(tmp_path):
+    t1s = _load_script("04_tier1_ablation.py")
+    processed = _write_o1_pair(tmp_path, shift=1e-11)  # the observed run-to-run noise
+    t1s._verify_o1(processed)
+    processed = _write_o1_pair(tmp_path / "b", shift=1e-6)
+    with pytest.raises(RuntimeError, match="differs from its Amendment 1 reference by"):
+        t1s._verify_o1(processed)
+
+
+def test_o1_check_rejects_a_different_shape(tmp_path):
+    t1s = _load_script("04_tier1_ablation.py")
+    processed = _write_o1_pair(tmp_path, shift=0.0)
+    _o1_frame().rename(columns={"state_0": "other"}).to_parquet(processed / "states" / "O1.parquet")
+    with pytest.raises(RuntimeError, match="index or columns"):
+        t1s._verify_o1(processed)

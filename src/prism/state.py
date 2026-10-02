@@ -1,4 +1,4 @@
-"""State vector assembly for the nine ablation variants. Spec §10, §16 step 3b.
+"""State vector assembly for the ablation variants (nine in §10, plus Phase B's C4). Spec §10, §16 step 3b.
 
 Spec §10: "All variants share the same index, scaling policy, and
 portfolio-state block." This module *assembles*; it does not fit or train
@@ -68,6 +68,7 @@ __all__ = [
     "StateArtifacts",
     "StateFrame",
     "MissingArtifactError",
+    "PHASE_B_VARIANTS",
     "build_state",
     "shuffle_posteriors",
 ]
@@ -101,6 +102,14 @@ class StateArtifacts:
     smoothed_posteriors: pd.DataFrame | None = None
 
 
+#: Variants added for Phase B (DECISIONS.md D-032). Deliberately NOT in
+#: ``cfg.tier1.variants``: the Tier 1 pre-registration fixed that list and its
+#: config, and changing either would change the code version behind the Tier 1
+#: results (D-031). C4 = V2 + C2's threshold-regime columns. It isolates whether
+#: the HMM's probabilistic posteriors matter beyond a threshold once a temporal
+#: model is present, i.e. V4 > C4 where V4 > V2 could not attribute the gain.
+PHASE_B_VARIANTS: tuple[str, ...] = ("C4",)
+
 #: Which StateArtifacts fields each variant needs, beyond the base features.
 _REQUIRES: dict[str, tuple[str, ...]] = {
     "V1": (),
@@ -112,6 +121,7 @@ _REQUIRES: dict[str, tuple[str, ...]] = {
     "C2": ("threshold_states",),
     "C3": ("posteriors",),
     "O1": ("smoothed_posteriors",),
+    "C4": ("latents", "threshold_states"),
 }
 
 
@@ -182,7 +192,8 @@ def build_state(
     features
         A built :class:`~prism.features.build.FeatureSet` (the V1 baseline).
     variant
-        One of ``cfg.tier1.variants`` or ``cfg.tier1.diagnostic_variants``.
+        One of ``cfg.tier1.variants``, ``cfg.tier1.diagnostic_variants`` or
+        :data:`PHASE_B_VARIANTS`.
     artifacts
         Precomputed component frames this variant needs (see
         :data:`_REQUIRES`); raises :class:`MissingArtifactError` naming
@@ -214,7 +225,9 @@ def build_state(
     features' index with every supplied artifact's index (and, if given, the
     portfolio block's), sorted and de-duplicated, containing no NaN/inf.
     """
-    known_variants = set(cfg.tier1.variants) | set(cfg.tier1.diagnostic_variants)
+    known_variants = (
+        set(cfg.tier1.variants) | set(cfg.tier1.diagnostic_variants) | set(PHASE_B_VARIANTS)
+    )
     if variant not in known_variants:
         raise ValueError(f"unknown variant {variant!r}; known: {sorted(known_variants)}")
 
@@ -259,6 +272,9 @@ def build_state(
         extra_blocks.append(shuffle_posteriors(artifacts.posteriors, seed=seed))
     elif variant == "O1":
         extra_blocks.append(artifacts.smoothed_posteriors)
+    elif variant == "C4":
+        extra_blocks.append(artifacts.latents)
+        extra_blocks.append(artifacts.threshold_states)
     else:  # pragma: no cover - guarded by the known_variants check above
         raise AssertionError(f"unhandled variant {variant!r}")
 

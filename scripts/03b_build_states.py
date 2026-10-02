@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Assemble all nine state variants. Spec §10, §16 step 3b.
+"""Assemble all nine state variants, plus Phase B's C4. Spec §10, §16 step 3b.
 
     python scripts/03b_build_states.py                # mandatory variants only
     python scripts/03b_build_states.py --with-oracle   # also O1 (diagnostic; re-fits the
@@ -32,11 +32,17 @@ persisted by step 2, so there is nothing cheaper to reuse). It is written to
 its own file, separate from the eight reportable variants, and never
 produced otherwise.
 
+C4 (V2 plus C2's threshold-regime columns, DECISIONS.md D-032) is a Phase B
+control, built from the same latents and threshold states V2 and C2 use. Its
+schema goes in ``schema_phase_b.json``, NOT ``schema.json``: the Tier 1
+pre-registration pins ``schema.json``'s SHA-256 and the report aborts if it
+changes, so the eight Tier 1 variants and O1 are written exactly as before.
+
 Every variant's assembled frame is written to
 ``data/processed/states/<variant>.parquet``, and
-``data/processed/states/schema.json`` records every variant's schema hash,
-column count and date range — the step 3b acceptance criterion "schema hash
-recorded".
+``data/processed/states/schema.json`` records every Tier 1 variant's schema
+hash, column count and date range — the step 3b acceptance criterion "schema
+hash recorded".
 """
 
 from __future__ import annotations
@@ -58,9 +64,10 @@ from prism.models.baselines.random_encoder import random_encoder_latents  # noqa
 from prism.models.baselines.threshold_regime import threshold_regime_walkforward  # noqa: E402
 from prism.models.hmm.walkforward import hmm_walkforward  # noqa: E402
 from prism.splits import build_split_plan  # noqa: E402
-from prism.state import StateArtifacts, StateFrame, build_state  # noqa: E402
+from prism.state import PHASE_B_VARIANTS, StateArtifacts, StateFrame, build_state  # noqa: E402
 from prism.utils.hashing import hash_object, make_run_id, write_manifest  # noqa: E402
 from prism.utils.logging import configure_logging, get_logger  # noqa: E402
+from prism.utils.prereg import preregistered_hashes  # noqa: E402
 from prism.utils.seeding import derive_seed, seed_everything  # noqa: E402
 
 _log = get_logger(__name__)
@@ -197,6 +204,16 @@ def write_schema_report(path: Path, states: dict[str, StateFrame]) -> None:
     path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
 
 
+def protected_targets(cfg: Config, *, with_oracle: bool) -> list[str]:
+    """Files this run would write that the pre-registration pins by SHA-256 (D-033)."""
+    targets = [f"states/{v}.parquet" for v in cfg.tier1.variants]
+    if with_oracle:
+        targets += [f"states/{v}.parquet" for v in cfg.tier1.diagnostic_variants]
+    targets.append("states/schema.json")
+    listed = preregistered_hashes(cfg.root)
+    return [t for t in targets if t in listed and (cfg.path("processed") / t).exists()]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="configs/base.yaml")
@@ -204,10 +221,29 @@ def main(argv: list[str] | None = None) -> int:
         "--with-oracle", action="store_true",
         help="also build O1, the diagnostic leaky oracle (re-fits the winning HMM spec)",
     )
+    parser.add_argument(
+        "--phase-b-only", action="store_true",
+        help="build and write only the Phase B controls (C4); never touches a Tier 1 file",
+    )
+    parser.add_argument(
+        "--allow-overwrite-preregistered", action="store_true",
+        help="permit overwriting state files whose SHA-256 the Tier 1 pre-registration pins "
+        "(DECISIONS.md D-033). Using this invalidates those hashes; amend the pre-registration first.",
+    )
     args = parser.parse_args(argv)
+    if args.phase_b_only and args.with_oracle:
+        parser.error("--phase-b-only and --with-oracle are mutually exclusive")
 
     cfg = load_config(args.config)
     log = configure_logging()
+    if not args.phase_b_only and not args.allow_overwrite_preregistered:
+        pinned = protected_targets(cfg, with_oracle=args.with_oracle)
+        if pinned:
+            parser.error(
+                "refusing to overwrite files pinned by reports/tables/preregistration.md: "
+                f"{pinned}. Use --phase-b-only to build C4 alone, or pass "
+                "--allow-overwrite-preregistered after amending the pre-registration."
+            )
     seeds = seed_everything(cfg.data.seeds.master)
 
     features_b = _load_feature_set(cfg, "B")
@@ -249,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     states: dict[str, StateFrame] = {}
-    for variant in cfg.tier1.variants:
+    for variant in () if args.phase_b_only else cfg.tier1.variants:
         states[variant] = build_state(
             features_b, cfg, variant, artifacts=artifacts, scaler=scaler,
             v1p_window=selected["window"],
@@ -276,11 +312,25 @@ def main(argv: list[str] | None = None) -> int:
             states["O1"].frame.shape[0], states["O1"].frame.shape[1],
         )
 
+    phase_b_states: dict[str, StateFrame] = {}
+    for variant in PHASE_B_VARIANTS:
+        phase_b_states[variant] = build_state(
+            features_b, cfg, variant, artifacts=artifacts, scaler=scaler,
+            v1p_window=selected["window"],
+        )
+        log.info(
+            "variant %s (Phase B control): %d sessions x %d columns, schema_hash=%s",
+            variant, phase_b_states[variant].frame.shape[0],
+            phase_b_states[variant].frame.shape[1], phase_b_states[variant].schema_hash[:12],
+        )
+
     out_dir = cfg.path("processed") / "states"
     out_dir.mkdir(parents=True, exist_ok=True)
-    for variant, sf in states.items():
+    for variant, sf in {**states, **phase_b_states}.items():
         sf.frame.to_parquet(out_dir / f"{variant}.parquet")
-    write_schema_report(out_dir / "schema.json", states)
+    if not args.phase_b_only:
+        write_schema_report(out_dir / "schema.json", states)
+    write_schema_report(out_dir / "schema_phase_b.json", phase_b_states)
     log.info("states persisted to %s", out_dir)
 
     run_id = make_run_id("03b_build_states")
@@ -289,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         run_id=run_id, stage="03b_build_states",
         config_hash=_config_hash(cfg), snapshot_hash=None,
         seeds=seeds.as_dict(),
-        extra={"variants": sorted(states), "k": k},
+        extra={"variants": sorted({*states, *phase_b_states}), "k": k},
         root=cfg.root,
     )
     log.info("run manifest: %s", manifest_path)

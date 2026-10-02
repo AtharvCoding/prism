@@ -927,3 +927,66 @@ Rule, as pre-registered: a comparison passes iff the paired-difference 95% CI (s
 **Limitations recorded with the decision.** (a) The mean-variance gamma sits at the top of its pre-registered grid (32; V1's validation exposure 0.82 against the 0.70 target); the grid was not widened after test output existed. (b) Ridge alpha is at the grid ceiling for `fwd_ret_20` for every variant, which is the pre-registered edge limitation and is benign (it means predict the mean). (c) One test split, already viewed once at step 3 (D-029): a redesigned LSTM or HMM scored on it again is exploratory, and confirmatory evidence needs the holdout under a new pre-registration. (d) Sharpe is on total net returns, not excess of cash. (e) Run history: two development runs preceded the final run; the only change between them was a bug in a weight-constraint check on the 60/40 benchmark; no pre-registered choice changed.
 
 **Phase A ends here, for review (spec §16).** Per §13.1 both components are redesigned or dropped before Phase B; this entry records that they did not clear their gates, not what to do next.
+
+---
+
+## Phase B
+
+### D-032 · Phase B scope: variants V1, V2, V4 and the new control C4; LSTM and HMM kept only as required comparisons
+**Date:** 2026-10-02 · **Decided by:** principal investigator · **Status:** recorded; Phase A-only restriction (spec §0.3, §17.0) lifted
+
+Phase A is accepted. Both Tier 1 component gates **failed** (see "Gate decisions (Tier 1)" above): the LSTM
+(V2 vs C1) and the HMM (V3 vs C2). Spec §13.1 says a component that fails is "redesigned or dropped before Phase B".
+The decision is that neither is presumed to help. **The LSTM and the HMM stay in Phase B only as the comparisons the
+research question requires** (V4 vs V2 and V2 vs V1 need them), not as presumed improvements; a Phase B result in
+which either adds nothing is a finding, not a defect of the build. Nothing was redesigned.
+
+**Phase B variants: V1, V2, V4 and C4.** V1' , V3, C1, C2 and C3 are Tier 1 variants and are not trained in Phase B.
+
+**C4 = V2 + the C2 threshold-regime columns** (V1 features, the 32-dim DAE latent, the two-column VIX-threshold
+one-hot). Why it exists: the Tier 1 research-question comparison V4 > V2 passed the paired rule, but because V3 was
+indistinguishable from C2, the gain "cannot be attributed to the HMM rather than to *any* two-column regime signal,
+and no 'V2 plus threshold regime' control was pre-registered" (gate-decision entry above). C4 is that control. At the
+policy level, **V4 vs C4** isolates whether the HMM's probabilistic posteriors matter beyond a threshold once a
+temporal model is present; V4 vs V2 stays the research question as written.
+
+**Implementation.** `prism.state.PHASE_B_VARIANTS = ("C4",)`; C4 needs `StateArtifacts.latents` and
+`threshold_states` and is deliberately **not** in `cfg.tier1.variants` or `diagnostic_variants`: the Tier 1
+pre-registration fixed those lists and `configs/experiments/tier1_probes.yaml`, and D-031 ties any change there to an
+amendment. C4's schema is written to `states/schema_phase_b.json`, not `states/schema.json` (whose SHA-256 is
+pinned). Tests: `tests/test_state.py` (C4 = V2 columns + C2 columns, each block byte-identical to the sibling
+variant's; carries no HMM information; never a Tier 1 variant; names the missing artifact).
+
+**Caveat carried forward.** The Tier 1 test split (2019-01-01 .. 2023-11-22) has been viewed (D-029, D-031 limitation c).
+Phase B evaluation on it is exploratory unless a new pre-registration is committed before any agent is scored (spec
+§13.2, build step 4c); confirmatory evidence needs the holdout under its own pre-registration.
+
+### D-033 · O1 is not byte-reproducible: Amendment 1, a numeric check, and a guard against overwriting pre-registered files
+**Date:** 2026-10-02 · **Decided by:** principal investigator · **Status:** implemented
+
+**What happened.** Rebuilding the states to add C4 (`03b_build_states.py --with-oracle`) reproduced 13 of the 14
+pre-registered SHA-256 values exactly (all of V1, V1p, V2, V3, V4, C1, C2, C3, `schema.json` and the inputs) and
+changed one: `states/O1.parquet`, `79cf1166…` -> a different hash. O1 is built from per-fold *smoothed* posteriors,
+which the script re-fits; a second consecutive run gave different bytes again, at most 2.3e-11 apart in value. The
+refit is not byte-reproducible, so the pre-registered O1 bytes could not have been restored even in principle.
+The rebuild also **overwrote the original O1 file, and I did not back it up first**; that was my error and is what
+prompted the guard below. The original is unrecoverable.
+
+**Amendment 1** (appended to `reports/tables/preregistration.md`, nothing above it edited): O1's exact hash is replaced
+by a numeric check — same index and columns as, and within 1e-9 of, the frozen reference copy
+`states/O1.amendment1.parquet` (`a631c8ab…`, itself verified by exact SHA-256). All 13 other hashes stay exact.
+`scripts/04_tier1_ablation.py` implements it (`_verify_o1`; shared parser `prism.utils.prereg`). Tests in `tests/test_tier1.py`.
+The check is against the post-loss rebuild, so it cannot show equivalence to the *original* O1; the evidence for
+that is the next paragraph.
+
+**Re-run.** `make tier1` after the amendment: input verification passed (15 hashes, O1 numeric), and the stored
+results reproduce: `gates.json` byte-identical; every probe, allocator, DSR, cost-sensitivity, episode and paired
+table within 9.3e-12 of the stored values (the O1 diagnostic rows included), non-numeric columns identical. They are
+not byte-identical in the last digits (the earlier regeneration in D-031 was); the cause was not isolated and the
+differences are far below any reported precision. **The committed `reports/tier1_report.md` and `reports/tables/tier1_*.csv`
+and the original `data/processed/tier1/` are kept as the results of record**; the re-run output was discarded.
+
+**Guard.** `03b_build_states.py` now refuses (before doing any work) to write any file whose SHA-256 the
+pre-registration lists, unless `--allow-overwrite-preregistered` is passed. `--phase-b-only` builds C4 alone and
+touches no Tier 1 file; it is the normal way to rebuild C4. Because O1 is listed, `--with-oracle` now needs the flag.
+Anything that flag overwrites invalidates those hashes and needs an amendment first.

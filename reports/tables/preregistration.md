@@ -333,4 +333,29 @@ and a split that has not been scored; the only such data is the holdout, reserve
 
 ## Amendments
 
-*(none)*
+### Amendment 1 — 2026-10-02 · O1's exact SHA-256 replaced by a numeric check
+
+**What changed.** The §2 hash for `states/O1.parquet` (`79cf1166…`) is no longer verified byte for byte. Every
+other §2 hash stays an exact SHA-256 check. `scripts/04_tier1_ablation.py` now verifies O1 as follows: it must
+have the same index and columns as, and agree to within **1e-9** (maximum absolute difference) with, the frozen
+reference copy `states/O1.amendment1.parquet`, whose own SHA-256 is verified exactly:
+
+```
+a631c8ab60bb83dfbf607c0afcb8352561df6ed5b850d9e1b8bda418238296ef  states/O1.amendment1.parquet
+```
+
+**Why.** O1 is built from per-fold *smoothed* HMM posteriors, which `scripts/03b_build_states.py --with-oracle`
+re-fits (step 2 persists no model objects). That re-fit is not byte-reproducible: two consecutive runs on
+identical inputs and seeds produced different bytes, differing by at most 2.3e-11 in value (every other state
+file, including the filtered posteriors V3/V4/C2/C3 depend on, reproduced byte for byte). The 03b rebuild needed
+to add the Phase B control C4 overwrote the original O1 file, so the pre-registered bytes cannot be restored; the
+second rebuild's output is the reference (the first differs from it by 2.3e-11). The original is not recoverable, so the check cannot be made against it:
+the evidence that the rebuilt O1 is equivalent to the original is that the stored Tier 1 results re-generate from
+it (DECISIONS.md D-033).
+
+**What is unaffected.** O1 is diagnostic-only (spec §10) and enters no gate, no pre-registered contrast and no
+headline number; the eight reportable variants' files are byte-identical to the pre-registered ones.
+
+**Test-split output seen at this point:** yes. The Tier 1 run (commit `77cc6bcd2754ec636bde4e92b98238f2a790e0b5`)
+had already been scored and reported. This amendment changes nothing that run depends on except the tolerance
+applied to a diagnostic input.
