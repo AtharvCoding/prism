@@ -330,7 +330,9 @@ def stage_holdout_replay(cfg, out: Path, log, *, sure: bool) -> None:  # noqa: A
         raise SystemExit("REPLAY CHECK FAILED against the Tier 2 state files; nothing is recorded")
     # 3 the replay; raises before anything is written if a single series differs
     res = dr.replay_window(cfg, plan, "holdout", ext.close, stored, daily, meta, final_holdout=True)
-    # 4 record
+    # 4 the last fold's models, persisted under data/live and verified against the stored states, before any artifact is written
+    manifest, mcheck = _save_and_verify_models(cfg, ext, _features_b(cfg, raw, end), ROOT / live.MODELS_DIR, stored, log)
+    # 5 record
     files = _write_weights(out, "holdout", res)
     first_holdout_fold = sum(f.fold.apply_start <= plan_split["test"].declared_end for f in ext.hmm.folds)
     rel = "regimes/hmm_folds_holdout.csv"
@@ -338,7 +340,6 @@ def stage_holdout_replay(cfg, out: Path, log, *, sure: bool) -> None:  # noqa: A
     (out / rel).parent.mkdir(parents=True, exist_ok=True)
     table.to_csv(out / rel, index=False, lineterminator="\n")
     files[rel] = {"kind": "derived", "sha256": sha256_file(out / rel), "folds": int(len(table))}
-    manifest, mcheck = _save_and_verify_models(cfg, ext, _features_b(cfg, raw, end), ROOT / live.MODELS_DIR, stored, log)
     files["live/models_manifest.json"] = {"kind": "manifest", "sha256": dd._write_json(out / "live" / "models_manifest.json", manifest)}
     files["live/models_check.json"] = {"kind": "check", "sha256": dd._write_json(
         out / "live" / "models_check.json", {"walkforward": check, "tier2_states": tier2_check["variants"], "reproduce": mcheck})}

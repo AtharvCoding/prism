@@ -590,3 +590,23 @@ def test_the_live_and_lab_charts_draw_what_they_are_given(mode):
     assert len(pipe.frames) == 3
     for fig in (donut, lines_, change, pipe, charts.latent_spark([0.1, -0.2], c)):
         assert not FORBIDDEN.search(fig.to_json())
+
+
+def test_once_the_frozen_models_exist_refresh_is_offered_even_before_the_first_refresh(monkeypatch):
+    """After the gated replay there are models but no cache yet: the recorded weights show, and Refresh must be usable."""
+    from components import current, data
+
+    monkeypatch.setattr(data, "live_models_manifest", lambda: {"end": "2023-12-29"})
+    monkeypatch.setattr(current.live, "read_cache", lambda _dir: None)
+    at = _open(_page("live"))
+    [refresh] = [b for b in at.button if b.label == "Refresh"]
+    assert not at.exception and not refresh.disabled
+    assert any("Not live." in c.value and "Press Refresh" in c.value for c in at.caption)
+
+    def offline(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr(current.live, "refresh", offline)
+    refresh.click().run()
+    assert not at.exception and any("ConnectionError: offline" in c.value for c in at.caption)
+    assert any("Not live." in c.value for c in at.caption)                  # still the recorded weights, still labelled

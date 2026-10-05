@@ -65,11 +65,11 @@ def view() -> dict[str, Any]:
     manifest = data.live_models_manifest()
     cache = live.read_cache(data.ROOT / live.CACHE_DIR) if manifest is not None else None
     if cache is None:
-        return _recorded()
+        return {**_recorded(), "can_refresh": manifest is not None}
     history = pd.Series(cache["p_volatile"])
     history.index = pd.to_datetime(history.index)
     return {
-        "source": "live", "status": st.session_state.get("live_status", "cached"), "window": cache["window"],
+        "source": "live", "can_refresh": True, "status": st.session_state.get("live_status", "cached"), "window": cache["window"],
         "as_of": date.fromisoformat(cache["as_of"]), "decision_date": date.fromisoformat(cache["decision_date"]), "is_preview": cache["is_preview"],
         "decision": cache["decision"], "preview": cache["preview"], "benchmarks": cache["benchmarks"], "columns": cache["columns"],
         "observations": cache["observations"], "models": cache["models"], "p_volatile": float(history.iloc[-1]) if not cache["is_preview"]
@@ -100,15 +100,18 @@ def controls(v: dict[str, Any], key: str) -> None:
         if v["source"] == "recorded":
             what = "holdout" if v["window"] == "holdout" else "test split"
             st.caption(f"Not live. These are the weights at the last decision recorded from the {what} replay ({v['decision_date']:%d %b %Y}). "
-                       "A live view needs the frozen last-fold models, which are written by the gated holdout replay; that has "
-                       "not been run in this copy.")
+                       + ("Press Refresh to fetch the latest closes and run them through the frozen models." if v["can_refresh"] else
+                          "A live view needs the frozen last-fold models, which are written by the gated holdout replay; that has "
+                          "not been run in this copy."))
+            if st.session_state.get("live_message"):
+                st.caption(f":red[{st.session_state['live_message']}]")
         elif v.get("message"):
             st.caption(f":red[{v['message']}] The last good result is shown.")
     with right:
         last = st.session_state.get("live_refreshed_at")
         waiting = last is not None and (pd.Timestamp.now(tz="UTC") - last).total_seconds() < 60
         st.button("Refresh", icon=":material/refresh:", key=f"refresh_{key}", width="stretch", on_click=refresh_now,
-                  disabled=v["source"] == "recorded" or waiting or policies() is None,
+                  disabled=not v["can_refresh"] or waiting or policies() is None,
                   help="Fetches the latest daily closes and runs them through the frozen models. At most once a minute.")
 
 
