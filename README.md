@@ -52,6 +52,12 @@ results on it are exploratory; the holdout stays reserved for step 5.
 385 passed
 ```
 
+**Dashboard (in progress; `DASHBOARD.md`).** A Streamlit app that explains the project and shows the stored results. Milestones D0 and D1
+are built: the shell and the static pages (the question, data and universe, the agent, results, verdict), reading
+`dashboard/artifacts/`, which are byte-for-byte copies of the stored tables checked against `reports/final_report.md`.
+`make dashboard-install` (adds pinned streamlit and plotly), then `make dashboard`. With that group installed the suite is
+`442 passed`; without it the app tests are skipped. See DECISIONS.md D-043 to D-046.
+
 No skips and no xfails remain: every spec §7 contract is a real test, and the
 environment, cost and state tests run on synthetic paths with hand-computed
 answers.

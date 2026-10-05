@@ -1303,3 +1303,46 @@ the SHA-256 of all 532 files under `data/processed/` (except `tier2_smoke/` and 
 written before any dashboard code existed. `make dashboard-verify-frozen` checks it. It agrees with the 46 hashes of `preregistration_holdout.md`, the 5 of `preregistration_tier2.md`, the snapshot manifest and the Tier 1
 pre-registration (whose original `states/O1.parquet` hash differs, as D-033 and its Amendment 1 record). `reports/logs/holdout_access.jsonl` is append-only and the pre-registrations are tracked by git; neither is in the baseline.
 The baseline is evidence from 2026-10-06 onward only: it cannot show that nothing changed between the runs and today.
+
+### D-046 · Dashboard D1: static pages from stored results, the artifact stage, and three more spec mismatches
+**Date:** 2026-10-06 · **Status:** implemented; milestone D1 of DASHBOARD.md §8 · choices mine unless stated
+
+**What the pages read.** `scripts/10_dashboard_data.py` (`make dashboard-data`) has one stage so far, "stored": it copies the stored tables of the test split and the holdout,
+the Tier 1 gates and the frozen configurations **byte for byte** into `dashboard/artifacts/` (40 files, 388 KB, committed), after checking each source against the D-045 baseline
+and refusing on any difference. A copy's SHA-256 in `manifest.json` therefore equals the baseline hash of its source, which a test asserts. Three files are derived and are not
+statistics: the 40 final runs' learning curves in one CSV; `facts.json` (configuration values and table summaries the page copy quotes, so no page hard-codes a research number);
+`report_check.json`. The manifest carries no timestamp or commit, so rebuilding unchanged inputs is byte-identical. The stage reads no raw data, state file or model and never opens
+the holdout; the replay and the live models (D2) will be separate, gated stages. Alternative: pages read `data/processed` directly; rejected because those files are gitignored and
+the app would then show numbers nothing committed can vouch for.
+
+**"Every number matches" is checked against the report, not against a copy of itself.** The headline tables the pages show (gate verdicts, all 24 paired differences, variants and
+benchmarks, cost sensitivity, episodes, Tier 1 gates) are built from the artifacts with `final_report.py`'s own row builders and formatters, and each of the resulting 130 markdown
+rows must be a line of the committed `reports/final_report.md`. The precompute fails otherwise, `make dashboard-check` repeats it without writing, and tests show that one changed
+number or one changed verdict fails it. `final_report.py` is imported, not edited. The app verifies the artifacts against the manifest once per session and shows nothing if that fails.
+
+**Page scripts are in `dashboard/views/`, not `pages/` (deviation from DASHBOARD.md §3).** A directory named `pages/` beside the main script switches on Streamlit's legacy page
+lookup. Under `AppTest`, and plausibly on a cold server opened at a page URL, that ran the page script alone, without `app.py`: no artifact verification, no header, no holdout
+status. Found because the header test failed on every page but the first. With `views/` the frame runs on every page (tested).
+
+**Scope taken in D1.** Pages 2, 3, 6, 10, 11 are registered; pages 1, 4, 5, 7, 8, 9 appear when their milestones are built (no placeholder pages). Page 6 includes the action-map
+interactive: it calls the environment's own `action_to_weights`, loads no model, and no later milestone names it. Page 10 shows the stored tables and the headline forest plot (Sharpe,
+block 20, test beside holdout); its selectors, per-seed plots, equity curves and cost slider stay in D4. The Verdict page offers the reports as downloads, since a local app cannot link to repository files.
+
+**Presentation.** Stored tables are static tables (every row visible, text wrapped), not scrolling grids: the twelve-row difference table was hiding two rows. Colours: variants
+V1/V2/V4/C4 = blue/orange/aqua/violet in both themes, validated for colour-vision deficiency on adjacent pairs; no four-hue set passes for every pair, so C4 is also dashed with a
+diamond marker. Benchmarks are grey. The two windows are not hues: holdout filled in the primary ink, test split open in grey. No theme is forced. `.streamlit/config.toml` binds
+the server to localhost (D-043: local only; the default serves the LAN) and turns Streamlit's usage statistics off.
+
+**Three more places where DASHBOARD.md does not match the stored results** (the pages show the stored values):
+1. §7 page 11 gives the power as "CIs about ±0.35 Sharpe". That was the pre-registered expectation. The stored half-widths are ±0.35 to ±0.39 on the test split and ±0.45 to ±0.51 on the
+   shorter holdout; the Verdict page states both.
+2. §1 says the agents lose to the benchmarks "mainly because" of turnover. The stored cost table supports that on the test split (at 0 bps the best variant's mean Sharpe, 0.89, is above
+   equal weight, 60/40 and risk parity; at 5 bps it is not) but not on the holdout, where the best variant at 0 bps (1.19) is below all three. The Agent page says costs account for part
+   of the gap, not necessarily all of it, and prints which benchmarks the best variant's mean exceeds at 0 and 5 bps for the selected window, labelled as untested point estimates.
+3. The minimum-variance benchmark's deflated Sharpe on the holdout is 0.9487. At two decimals it prints as 0.95, the bar. The deflated-Sharpe table uses three decimals.
+
+**Tests.** `tests/test_dashboard_data.py` (17; needs no Streamlit) and `tests/test_dashboard_app.py` (40; `AppTest` on the real app, skipped as a module when the `dashboard` group
+is absent, as `test_holdout.py` already does for gymnasium). They cover: copies are the frozen bytes; a modified source, artifact or manifest is refused; report rows; every page
+renders with title, takeaway and "How to read this", in under 1 s from cache (measured 0.01 to 0.06 s; cold start 1.1 s); the stored-results and holdout-spent badges on every page;
+the forbidden-wording list of §6 over page text and chart text; the permanent weights caption exactly where a page shows weights (none yet); the Results tables equal the report's rows;
+the sign-flip sentence; the Tier 1 V4-vs-V2 pass is shown (D-044 item 5). Suite: 442 passed with the dashboard group installed (385 before).
