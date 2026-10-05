@@ -127,6 +127,10 @@
    "kind": "check",
    "sha256": "0ab1cac93d77f93f24f8203f8da87d28943da1ebe7a3b4d3604a16f3c36cecca"
   },
+  "live/refresh_rehearsal.json": {
+   "kind": "check",
+   "sha256": "c7ed5740fc730ef69d25ce684d3f5bf4d41bf65583e7b445719125c7ed9ed0d0"
+  },
   "live/rehearsal_check.json": {
    "kind": "check",
    "sha256": "0721d71a1b48bcbd6195f9c82b803a06ddad8f3baae9095805b2414322b9f398"
@@ -295,5 +299,5 @@
    "sha256": "30833eef612ade3011746f0cb92f975d69618ccc3bf4e686eee792544069bf91"
   }
  },
- "hash": "c5ad81aacb3eb293585fcbb798e2ba7280ede3c71b2b63c89ef9838bfb7416a1"
+ "hash": "0ad7c12a4d30b6dcd75ea88effcf88c7039628391310a254c9a257431875570b"
 }

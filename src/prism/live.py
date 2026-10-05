@@ -32,10 +32,11 @@ __all__ = [
     "MODELS_DIR", "LiveModels", "save_models", "load_models", "hmm_model", "filter_hmm", "encoder_model", "encode",
     "threshold_states", "scale_features", "verify_models", "LiveModelError", "SeamError", "is_level_series",
     "completed_sessions", "fetch_recent", "splice", "live_states", "decision_calendar", "rollout", "latest_weights", "ensemble",
-    "regime_positions", "what_if_weights",
+    "regime_positions", "what_if_weights", "load_policies", "benchmark_weights", "refresh", "read_cache", "CACHE_DIR",
 ]
 
 MODELS_DIR = "data/live/models"
+CACHE_DIR = "data/live/cache"
 REGIME_COLUMNS = ("state_0", "state_1")
 
 
@@ -549,3 +550,120 @@ def what_if_weights(cfg, policy, observation: np.ndarray, columns: list[str], p_
         obs[i0], obs[i1] = 1.0 - p_volatile, p_volatile
     n_lines = sum(c.startswith("weight_") for c in columns)
     return action_to_weights(policy(obs), upper_bounds(n_lines - 1, cfg.data.allocation.weight_max), cfg.env.action.logit_scale)
+
+
+# --------------------------------------------------------------------------- #
+# one refresh: fresh prices -> frozen models -> the 40 agents' latest weights, cached
+# --------------------------------------------------------------------------- #
+def load_policies(cfg, root: Path) -> dict[tuple[str, int], Any]:  # noqa: ANN001
+    """The 40 frozen agents as deterministic policies, after checking every pinned file against its SHA-256."""
+    from prism.agents import tier2 as t2
+    from prism.agents.jobs import job_dir
+    from prism.agents.sac import greedy_policy, load_agent
+    from prism.dashboard_replay import verify_agents
+
+    verify_agents(root)
+    plan = t2.Tier2Plan.from_config(cfg, root)
+    frozen = t2.load_frozen(plan)
+    return {(v, s): greedy_policy(load_agent(job_dir(plan.runs, "final", v, frozen[v].cfg_id, s) / "best.zip"))
+            for v in plan.variants for s in plan.final_seeds}
+
+
+def benchmark_weights(cfg, close: pd.DataFrame, date: pd.Timestamp) -> pd.DataFrame:  # noqa: ANN001
+    """Equal weight, 60/40 and risk parity at one decision date, by their stored definitions (one row each)."""
+    from prism.backtest import benchmarks as bm
+    from prism.probes import allocator as al
+
+    params = al.AllocatorParams(risky=tuple(cfg.data.allocatable[cfg.env.universe]), equity_sectors=tuple(cfg.data.universes["A"].equity_sectors),
+                                cap=cfg.data.allocation.weight_max)
+    inputs, _ = al.prepare_inputs(close, params, pd.DatetimeIndex([date]))
+    frames = {"EqualWeight": bm.equal_weight(inputs, params), "SixtyForty": bm.sixty_forty(inputs, params), "RiskParity": bm.risk_parity(inputs, params)}
+    return pd.concat({name: f.iloc[0] for name, f in frames.items()}, axis=1).T.add_prefix("w_").rename_axis("benchmark").reset_index()
+
+
+def refresh(cfg, root: Path, *, now: pd.Timestamp, window: str = "holdout", models_dir: Path | None = None,  # noqa: ANN001
+            cache_dir: Path | None = None, fetch=fetch_recent, policies: dict[tuple[str, int], Any] | None = None,
+            expected_manifest: dict[str, Any] | None = None, overlap: int = 60) -> dict[str, Any]:
+    """Fetch, splice, compute the new states with the frozen models, continue every agent's episode, and cache the result.
+
+    ``window`` names the stored evaluation whose episode is continued (``holdout`` for the real thing; ``test`` only for
+    the rehearsal). The snapshot is used up to the models' last day and never written. Raises on any failure (network,
+    :class:`SeamError`, :class:`LiveModelError`) without touching the previous cache; the caller decides what to show.
+    """
+    from prism.dashboard_replay import stored_states
+    from prism.data.loaders import assert_not_holdout, load_snapshot
+    from prism.features.build import build_features, make_raw_frame
+    from prism.splits import build_split_plan
+
+    root = Path(root)
+    models = load_models(models_dir if models_dir is not None else root / MODELS_DIR, expected=expected_manifest)
+    end = pd.Timestamp(models.meta["end"])
+    snap = load_snapshot(cfg)
+    assets, macro = list(snap.close.columns), list(snap.macro.columns)
+    frozen_close = pd.concat([snap.close, snap.macro], axis=1).loc[:end]
+    frozen_volume = snap.volume.loc[:end]
+    if window != "holdout":
+        assert_not_holdout(cfg, frozen_close.index, context="live rehearsal")
+    start = frozen_close.index[-(overlap + 20)]
+    today = pd.Timestamp(now)
+    today = (today.tz_convert("UTC").tz_localize(None) if today.tzinfo is not None else today).normalize()
+    panels = fetch([*assets, *macro], start, today)
+    done = completed_sessions(panels["Close"].index, now)
+    fresh_close, fresh_volume = panels["Close"].loc[done], panels["Volume"].reindex(columns=assets).loc[done]
+    close, volume, report = splice(frozen_close, frozen_volume, fresh_close, fresh_volume, overlap=overlap)
+    raw = make_raw_frame(close[assets], volume, close[macro])
+    stored = stored_states(root, window)
+    stored = {v: f.loc[:end] for v, f in stored.items()}
+    if report["new_sessions"]:
+        new = live_states(cfg, raw, models, {v: [str(c) for c in f.columns] for v, f in stored.items()})
+        states = {v: pd.concat([stored[v], new[v]]) for v in stored}
+    else:
+        states = stored
+    close_b = build_features(raw, cfg, "B").close
+    episode_start = build_split_plan(cfg)[window].effective_start
+    policies = policies if policies is not None else load_policies(cfg, root)
+    res = latest_weights(cfg, states, close_b, policies, start=episode_start)
+    regime = states["V4"][list(REGIME_COLUMNS)].iloc[-260:]
+    latent = states["V2"][[c for c in states["V2"].columns if c.startswith("latent_")]].iloc[-1]
+    risky = len(cfg.data.allocatable[cfg.env.universe])
+    columns = {v: [*map(str, f.columns), *(c.replace("w_", "weight_") for c in res["decision"].columns if c.startswith("w_")), "mean_turnover"]
+               for v, f in states.items()}
+    status = {
+        "as_of": str(res["as_of"].date()), "decision_date": str(res["decision_date"].date()), "is_preview": bool(res["is_preview"]),
+        "fetched_utc": str(pd.Timestamp(now).tz_convert("UTC") if pd.Timestamp(now).tzinfo is not None else pd.Timestamp(now)),
+        "window": window, "models": {"end": models.meta["end"], "hmm_fit_end": models.hmm["fit_end"], "encoder_fit_end": models.encoder["fit_end"]},
+        "new_sessions": report["new_sessions"], "splice": {"anchor": report["anchor"], "overlap_sessions": report["overlap_sessions"],
+                                                           "max_diff": max(t["max_diff"] for t in report["tickers"].values())},
+        "n_lines": risky + 1, "columns": columns, "observations": res["observations"],
+        "p_volatile": {str(d.date()): float(p) for d, p in regime["state_1"].items()}, "latent": [float(x) for x in latent],
+    }
+    cache = Path(cache_dir) if cache_dir is not None else root / CACHE_DIR
+    scratch = cache.with_name(cache.name + ".tmp")
+    if scratch.exists():
+        import shutil
+
+        shutil.rmtree(scratch)
+    scratch.mkdir(parents=True)
+    res["decision"].to_parquet(scratch / "decision.parquet")
+    if res["preview"] is not None:
+        res["preview"].to_parquet(scratch / "preview.parquet")
+    benchmark_weights(cfg, close_b, res["decision_date"]).to_parquet(scratch / "benchmarks.parquet")
+    (scratch / "status.json").write_text(json.dumps(status, indent=1) + "\n", encoding="utf-8")
+    if cache.exists():
+        import shutil
+
+        shutil.rmtree(cache)
+    scratch.rename(cache)                                           # the previous good result is replaced only by a complete new one
+    return {**status, "decision": res["decision"], "preview": res["preview"]}
+
+
+def read_cache(cache_dir: Path) -> dict[str, Any] | None:
+    """The last successful refresh, or ``None`` if there has not been one."""
+    cache = Path(cache_dir)
+    if not (cache / "status.json").exists():
+        return None
+    out = json.loads((cache / "status.json").read_text(encoding="utf-8"))
+    out["decision"] = pd.read_parquet(cache / "decision.parquet")
+    out["preview"] = pd.read_parquet(cache / "preview.parquet") if (cache / "preview.parquet").exists() else None
+    out["benchmarks"] = pd.read_parquet(cache / "benchmarks.parquet")
+    return out

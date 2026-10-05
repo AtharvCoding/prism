@@ -1,0 +1,17 @@
+{
+ "final": {
+  "agents": 40,
+  "as_of": "2023-12-29",
+  "decision_date": "2023-12-29"
+ },
+ "models_end": "2023-11-30",
+ "new_sessions": 20,
+ "ok": true,
+ "preview": {
+  "as_of": "2023-12-27",
+  "decision_date": "2023-12-22"
+ },
+ "recorded_episode_max_abs_diff": 0.0,
+ "served_through": "2023-12-29",
+ "splice_max_diff": 2.220446049250313e-16
+}

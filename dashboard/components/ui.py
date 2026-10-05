@@ -123,17 +123,18 @@ The dashboard computes no new statistic for the verdict and tunes nothing.
     )
 
 
-def frame_header() -> None:
-    """Above every page: what kind of numbers these are, the holdout's status, and the about dialog."""
+def frame_header(*, has_live_elements: bool = False) -> None:
+    """Above every page: what kind of numbers these are, the holdout's status, and the about dialog.
+
+    Pages with a live element carry their own freshness badge, so the blanket "nothing here is live" is left off them.
+    """
     f = data.facts()
     evaluated = f["windows"]["holdout"]["evaluated_utc"][:10]
     left, right = st.columns([4, 1], vertical_alignment="center")
     with left:
         name, color, icon = FRESHNESS["stored"]
-        st.markdown(
-            f":{color}-badge[{icon} {name}: nothing on this page is live] "
-            f":orange-badge[:material/lock_open: Holdout spent: evaluated once, {evaluated}]"
-        )
+        stored = "" if has_live_elements else f":{color}-badge[{icon} {name}: nothing on this page is live] "
+        st.markdown(f"{stored}:orange-badge[:material/lock_open: Holdout spent: evaluated once, {evaluated}]")
     with right:
         if st.button("What this is / isn't", icon=":material/info:", key="about", width="stretch"):
             about_dialog()

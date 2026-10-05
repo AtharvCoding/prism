@@ -1434,3 +1434,37 @@ rendered page); the cost slider returns exactly the stored value at each of 0, 5
    computed from whichever table is shown. Seed noise is two views on one unit: a strip of the 40 agents' stored Sharpe ratios with the benchmarks as ticks, and bars comparing the seed spread
    with the between-variant gaps. Per-seed deflated Sharpe uses the derived `seed_dsr.csv` (D-047). Equity curves are cumulated from the stored daily returns: a variant is its median seed with a
    band from its lowest to its highest seed, and the zoom list is the stored drawdown episodes. The cost ranking interpolates linearly and labels itself "Interpolated" off the stored levels.
+
+### D-050 · Dashboard D5 and D6: the live path, the Live weights and Home pages, the What-if lab
+**Date:** 2026-10-06 · **Status:** built and verified on already-exposed data; **the real live view cannot run until the gated holdout replay has written `data/live/models/`** · choices mine
+
+**What "verified" means here.** No holdout row was read. The live path was checked three ways on the test split, each a stage of `scripts/10_dashboard_data.py`:
+* `live-check`: from the rehearsal models (frozen at 2023-12-29) `live_states` re-derives the stored December 2023 rows of V1, V2, V4 and C4 (maximum difference 1.1e-12); `rollout`, built on
+  `EnvData.from_arrays`, reproduces the recorded weights, pre-trade weights and turnover of all 40 agents over 255 decisions with difference 0.0; ending the episode at a decision close gives
+  exactly the observation the agent was fed at that decision in the longer run; `what_if_weights` with the input untouched returns the recorded weights.
+* `live-rehearsal` (not in the default run; a second six-minute walk-forward): models frozen at 2023-11-30, then December 2023 served by a stand-in vendor with adjusted prices restated by 0.7%.
+  `refresh` spliced 20 new sessions (overlap returns agree to 2e-16), produced the new state rows, ran all 40 agents, returned a preview as of Wednesday 2023-12-27 with the decision of 2023-12-22,
+  then the decision of Friday 2023-12-29 with no preview, and its continued episode contains the recorded one exactly.
+* The vendor call itself was tried once on post-holdout dates only (2026-09-30 to 2026-10-05): all 23 tickers returned, timezone-naive dates, the day's bar kept only after the close plus 30 minutes.
+**Not verified:** a real refresh end to end (fresh vendor data against the snapshot's last 60 sessions, through the holdout-fitted models). The first click of Refresh after the gated replay is that test;
+if the vendor's history disagrees with the snapshot beyond 1e-3 in daily returns the page shows "Data seam check failed" and keeps the last good result.
+
+**Choices.**
+1. **Decision versus preview is decided by the exchange calendar** (`decision_calendar`): the last session is a decision only if the next NYSE session falls in a later week; otherwise the decision
+   is the previous week's last session and the last session yields a labelled preview. Both come from episodes ended at the date in question, so a decision's weights never change when later data arrives (tested).
+2. **Splice** (D-044 item 9): adjusted series (the ETFs, HYG, LQD) are checked on returns and rescaled at the last common close; level series (`^`-indices, yields, `DX-Y.NYB`, `CL=F`) are checked in
+   level and never rescaled; volume is rescaled by the median overlap ratio, which is 1 unless there was a split. The frozen rows are never altered. Tolerance 1e-3 over 60 sessions.
+3. **A refresh replaces the cache only when complete** (written to a scratch directory and renamed). A failure of any kind leaves the previous result on screen: `SeamError` gives the badge
+   "Data seam check failed", anything else "Stale", each with the error text. The button is limited to once a minute and is disabled when there are no frozen models.
+4. **Without frozen models the three pages show recorded weights, labelled.** `components.current.view()` returns either the live cache or the last decision of the replay artifacts (the test
+   split's 2023-11-17 until the holdout is recorded), with a "Stored results · as of" badge and a sentence saying it is not live. The page-frame badge "nothing on this page is live" is left off
+   these three pages, which carry their own freshness badge.
+5. **Live weights page**: cost shown is the per-side cost on the risky notional traded, averaged over seeds, before slippage. The donut has four slices with a legend. The seed spread is stated
+   in words under the chart.
+6. **Home**: the pipeline is one Plotly figure whose nodes carry real values and light in order on "Run the pipeline" (seven frames, about two seconds); Streamlit cannot autoplay a figure.
+   The regime bar, the 32 latent numbers and the sleeve donut below it are the same values.
+7. **What-if lab**: "Today" passes the stored observation through untouched, so it equals the Live page exactly (tested); any other setting writes `(1 - p, p)` into the two regime inputs and
+   changes nothing else. C4 is a three-way choice (as it was / VIX low / VIX high). The sweep is 21 points for V4. "Regime effect" is the largest range of any sleeve's seed-average share
+   across the sweep; "seed disagreement" is the highest minus the lowest seed's share of that sleeve at the actual input. On the recorded 2023-11-17 observation they are 3.8 and 93.0
+   percentage points: the ten V4 agents ranged from 6.5% to 99.6% equity that day. The page states which is larger and words the conclusion accordingly in either case.
+8. **Agents are loaded once per server process** (`st.cache_resource`), after verifying all 46 pinned hashes. The What-if tests need the checkpoints and are skipped where `data/processed` is absent.

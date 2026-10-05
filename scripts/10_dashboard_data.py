@@ -21,6 +21,8 @@ and data/live):
     live-check      the live path's functions against stored results, on the test split: the frozen (rehearsal) models
                     re-derive the stored state rows of their last month; the continued-episode rollout reproduces the
                     recorded weekly weights and the final decision's observation for all 40 agents
+    live-rehearsal  (not in the default run) the whole refresh path on already-exposed data: models frozen one month
+                    before the test split's end, the last month fed in as if it were a fresh download
     holdout-replay  GATED. The same two things on the HOLDOUT window, plus the frozen last-fold models for the live view.
                     Needs --i-am-sure and PRISM_ALLOW_HOLDOUT=1, the committed Amendment 1, and is logged in
                     reports/logs/holdout_access.jsonl. It computes no statistic and writes nothing to data/processed.
@@ -50,6 +52,7 @@ from prism.utils.hashing import sha256_file  # noqa: E402
 from prism.utils.logging import configure_logging  # noqa: E402
 
 UNGATED = ("stored", "derived", "replay-test", "folds-test", "live-check")
+EXTRA = ("live-rehearsal",)        # not part of `all`: a second six-minute walk-forward, run when prism.live.refresh changes
 REASON = ("dashboard: descriptive replay of the frozen agents to record weekly weights and persist the last-fold models; "
           "no statistic is computed (preregistration_holdout.md Amendment 1)")
 
@@ -215,6 +218,74 @@ def stage_live_check(cfg, out: Path, log) -> None:  # noqa: ANN001
     log.info("live-check: live_states reproduce the stored states %s; rollout reproduces the recorded weights %s", states_diff, worst)
 
 
+def stage_live_rehearsal(cfg, out: Path, log) -> None:  # noqa: ANN001
+    """Run prism.live.refresh end to end without the network and without a holdout row.
+
+    The models are frozen at the end of the month before the test split's last month; that last month is then served
+    by a stand-in for the vendor, with adjusted prices restated by 0.7% as a dividend would. The refresh must splice it,
+    produce the new state rows, continue every agent's episode, and tell a weekly decision from a mid-week preview.
+    """
+    import numpy as np
+
+    from prism import dashboard_replay as dr
+    from prism import live
+    from prism.data.loaders import assert_not_holdout, load_snapshot
+    from prism.features.build import make_raw_frame
+    from prism.splits import build_split_plan
+
+    split = build_split_plan(cfg)["test"]
+    end = split.declared_end.replace(day=1) - pd.Timedelta(days=1)
+    snap = load_snapshot(cfg)
+    exposed_close = pd.concat([snap.close, snap.macro], axis=1).loc[: split.declared_end]
+    exposed_volume = snap.volume.loc[: split.declared_end]
+    assert_not_holdout(cfg, exposed_close.index, context="dashboard live-rehearsal")
+    raw = make_raw_frame(snap.close, snap.volume, snap.macro).loc[:end]
+    stored = dr.stored_states(ROOT, "test")
+    ext, _ = dr.walkforward(cfg, end, raw, {v: f.loc[:end] for v, f in stored.items()})
+    models_dir = ROOT / (live.MODELS_DIR + "_rehearsal_live")
+    manifest, _ = _save_and_verify_models(cfg, ext, _features_b(cfg, raw, end), models_dir, stored, log)
+
+    def vendor(tickers, start, stop):  # noqa: ANN001, ANN202 - a restated copy of rows already in the snapshot
+        close = exposed_close.loc[start:stop, tickers].copy()
+        adjusted = [t for t in tickers if not live.is_level_series(t)]
+        close[adjusted] = close[adjusted] * 0.993
+        return {"Close": close, "Volume": exposed_volume.loc[start:stop]}
+
+    policies = live.load_policies(cfg, ROOT)
+    cache = ROOT / (live.CACHE_DIR + "_rehearsal")
+    last = exposed_close.index[-1]
+    midweek = exposed_close.index[exposed_close.index.dayofweek == 2][-1]
+    preview = live.refresh(cfg, ROOT, now=pd.Timestamp(f"{midweek.date()} 16:45", tz="America/New_York"), window="test", models_dir=models_dir,
+                           cache_dir=cache, fetch=vendor, policies=policies, expected_manifest=manifest)
+    final = live.refresh(cfg, ROOT, now=pd.Timestamp(f"{last.date()} 23:00", tz="America/New_York"), window="test", models_dir=models_dir,
+                         cache_dir=cache, fetch=vendor, policies=policies, expected_manifest=manifest)
+    if not preview["is_preview"] or pd.Timestamp(preview["as_of"]) != midweek or final["is_preview"] or pd.Timestamp(final["decision_date"]) != last:
+        raise dr.ReplayError("the refresh did not separate the weekly decision from the mid-week preview")
+    cached = live.read_cache(cache)
+    if cached["decision_date"] != final["decision_date"] or len(cached["decision"]) != len(policies):
+        raise dr.ReplayError("the cache does not hold the refresh that was just made")
+    # the continued episode must contain the recorded one: same decisions, same weights, up to the recorded end
+    recorded = pd.read_parquet(out / "weights" / "test_agents.parquet")
+    close_b = __import__("prism.features.build", fromlist=["build_features"]).build_features(
+        make_raw_frame(exposed_close[list(snap.close.columns)], exposed_volume, exposed_close[list(snap.macro.columns)]), cfg, "B").close
+    worst = 0.0
+    for key in (("V4", 0), ("V1", 3), ("C4", 7)):
+        states = stored[key[0]].loc[: last]
+        got = live.rollout(cfg, states, close_b, policies[key], start=split.effective_start, end=last)["decisions"].set_index("decision_date")
+        want = recorded[(recorded.variant == key[0]) & (recorded.seed == key[1])].set_index("decision_date")
+        cols = [c for c in want.columns if c.startswith("w_")]
+        worst = max(worst, float(np.abs(got.loc[want.index[:-1], cols].to_numpy() - want.iloc[:-1][cols].to_numpy()).max()))
+    if worst > dr.REPLAY_ATOL:
+        raise dr.ReplayError(f"the continued episode does not contain the recorded one (max difference {worst:.2e})")
+    check = {"models_end": str(end.date()), "served_through": str(last.date()), "new_sessions": final["new_sessions"],
+             "splice_max_diff": final["splice"]["max_diff"], "preview": {"as_of": preview["as_of"], "decision_date": preview["decision_date"]},
+             "final": {"as_of": final["as_of"], "decision_date": final["decision_date"], "agents": int(len(final["decision"]))},
+             "recorded_episode_max_abs_diff": worst, "ok": True}
+    files = {"live/refresh_rehearsal.json": {"kind": "check", "sha256": dd._write_json(out / "live" / "refresh_rehearsal.json", check)}}
+    dd.write_manifest(out, files, sha256_file(ROOT / dd.BASELINE))
+    log.info("live-rehearsal: %s", json.dumps(check))
+
+
 def stage_holdout_replay(cfg, out: Path, log, *, sure: bool) -> None:  # noqa: ANN001
     from prism import dashboard_replay as dr
     from prism import holdout as H
@@ -281,7 +352,8 @@ def stage_holdout_replay(cfg, out: Path, log, *, sure: bool) -> None:  # noqa: A
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default="configs/base.yaml")
-    ap.add_argument("--stage", choices=[*UNGATED, "holdout-replay", "all"], default="all", help="'all' runs every stage that is not gated")
+    ap.add_argument("--stage", choices=[*UNGATED, *EXTRA, "holdout-replay", "all"], default="all",
+                    help="'all' runs every stage that is not gated, except live-rehearsal")
     ap.add_argument("--check", action="store_true", help="verify the artifacts against the manifest and the final report; write nothing")
     ap.add_argument("--i-am-sure", action="store_true", help="required, with PRISM_ALLOW_HOLDOUT=1, for --stage holdout-replay")
     args = ap.parse_args(argv)
@@ -313,6 +385,8 @@ def main(argv: list[str] | None = None) -> int:
             stage_folds_test(cfg, out, log)
         elif stage == "live-check":
             stage_live_check(cfg, out, log)
+        elif stage == "live-rehearsal":
+            stage_live_rehearsal(cfg, out, log)
     manifest = dd.verify_artifacts(out)
     log.info("dashboard/artifacts: %d files, manifest %s", len(manifest["files"]), manifest["hash"][:12])
     return 0

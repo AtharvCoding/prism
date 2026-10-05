@@ -438,3 +438,78 @@ def cost_rank(values: pd.Series, c: dict[str, Any]) -> go.Figure:
     fig.update_yaxes(showgrid=False)
     fig.update_layout(transition={"duration": 300})
     return theme.style(fig, c, height=360, legend=False)
+
+
+# --------------------------------------------------------------------------- live weights, home, what-if (pages 7, 1, 8)
+def sleeve_donut(sleeves: pd.Series, c: dict[str, Any], *, height: int = 300) -> go.Figure:
+    """Part-to-whole at a glance: the four sleeves of one allocation."""
+    names = [n for n in theme.SLEEVES if sleeves.get(n, 0.0) > 0]
+    fig = go.Figure(go.Pie(labels=names, values=[float(sleeves[n]) for n in names], hole=0.62, sort=False, direction="clockwise",
+                           marker={"colors": [c["sleeves"][n] for n in names], "line": {"color": c["surface"], "width": 2}},
+                           textinfo="percent", textposition="inside", insidetextorientation="horizontal",
+                           hovertemplate="%{label}: %{percent}<extra></extra>"))
+    fig.update_layout(transition={"duration": 400})
+    fig = theme.style(fig, c, height=height)
+    return fig.update_layout(margin={"l": 8, "r": 8, "t": 40, "b": 8}, legend={"y": 1.08})
+
+
+def change_bars(change: pd.Series, sleeve_of: dict[str, str], c: dict[str, Any]) -> go.Figure:
+    """Change in each holding's weight, in percentage points, from the unmodified observation."""
+    fig = go.Figure(go.Bar(x=list(change.index), y=change.to_numpy() * 100, width=0.55,
+                           marker={"color": [c["sleeves"][sleeve_of[n]] for n in change.index], "line": {"width": 0}},
+                           hovertemplate="%{x}: %{y:+.1f} pp<extra></extra>"))
+    span = max(1.0, float(np.abs(change).max()) * 115)
+    fig.update_yaxes(title_text="change in weight (percentage points)", range=[-span, span], zeroline=True, zerolinewidth=1)
+    fig.update_layout(transition={"duration": 300})
+    return theme.style(fig, c, height=300, legend=False)
+
+
+def sweep_lines(sweep: pd.DataFrame, references: dict[str, float], today: float, c: dict[str, Any]) -> go.Figure:
+    """Each sleeve's share (average of the seeds) as P(Volatile) is set from 0 to 1; flat references for variants with no regime input."""
+    fig = go.Figure()
+    for name in theme.SLEEVES:
+        fig.add_trace(go.Scatter(x=sweep.index, y=sweep[name], mode="lines", name=name, line={"color": c["sleeves"][name], "width": 2},
+                                 hovertemplate=f"{name} %{{y:.1%}} at P(Volatile) %{{x:.2f}}<extra></extra>"))
+    for name, value in references.items():
+        fig.add_trace(go.Scatter(x=[0, 1], y=[value, value], mode="lines", name=name, line={"color": c["muted"], "width": 1.5, "dash": "dot"},
+                                 hovertemplate=f"{name}: %{{y:.1%}} whatever the slider says<extra></extra>"))
+    fig.add_vline(x=today, line={"color": c["ink_2"], "width": 1}, annotation_text="today", annotation_position="top",
+                  annotation_font={"color": c["ink_2"], "size": 12})
+    fig.update_xaxes(title_text="P(Volatile) fed to the agent", range=[0, 1])
+    fig.update_yaxes(title_text="share of the portfolio", tickformat=".0%", range=[0, 1])
+    return theme.style(fig, c, height=360)
+
+
+def latent_spark(latent: list[float], c: dict[str, Any]) -> go.Figure:
+    """The latent's numbers as a strip of small bars: a picture of 'a vector', not something to read values from."""
+    fig = go.Figure(go.Bar(x=list(range(len(latent))), y=latent, marker={"color": c["accent"], "line": {"width": 0}},
+                           hovertemplate="latent %{x}: %{y:.2f}<extra></extra>"))
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False, range=[-1.05, 1.05])
+    fig = theme.style(fig, c, height=90, legend=False)
+    return fig.update_layout(margin={"l": 0, "r": 0, "t": 4, "b": 4}, bargap=0.25)
+
+
+def pipeline(steps: list[tuple[str, str]], c: dict[str, Any]) -> go.Figure:
+    """The pipeline as a row of nodes, each with its real value; play to light them in order (about two seconds)."""
+    n = len(steps)
+    x = list(range(n))
+
+    def nodes(lit: int) -> go.Scatter:
+        return go.Scatter(x=x, y=[0] * n, mode="markers+text", text=[f"<b>{a}</b><br>{b}" for a, b in steps], textposition="bottom center",
+                          textfont={"color": c["ink_2"], "size": 12}, hoverinfo="skip", showlegend=False,
+                          marker={"size": 26, "symbol": "circle", "color": [c["accent"] if i <= lit else c["grid"] for i in range(n)],
+                                  "line": {"color": c["surface"], "width": 2}})
+
+    fig = go.Figure([go.Scatter(x=[0, n - 1], y=[0, 0], mode="lines", line={"color": c["axis"], "width": 2}, hoverinfo="skip", showlegend=False),
+                     nodes(n - 1)])
+    fig.frames = [go.Frame(data=[fig.data[0], nodes(i)], name=str(i)) for i in range(n)]
+    fig.update_xaxes(visible=False, range=[-0.6, n - 0.4])
+    fig.update_yaxes(visible=False, range=[-1.6, 0.6])
+    fig = theme.style(fig, c, height=190, legend=False)
+    return fig.update_layout(
+        margin={"l": 0, "r": 0, "t": 34, "b": 0},
+        updatemenus=[{"type": "buttons", "showactive": False, "x": 0, "y": 1.25, "xanchor": "left", "bgcolor": "rgba(0,0,0,0)",
+                      "font": {"color": c["ink_2"]},
+                      "buttons": [{"label": "▶ Run the pipeline", "method": "animate",
+                                   "args": [None, {"frame": {"duration": 280, "redraw": True}, "fromcurrent": False, "transition": {"duration": 0}}]}]}])

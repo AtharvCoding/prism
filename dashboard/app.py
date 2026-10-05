@@ -38,5 +38,5 @@ except (ArtifactError, FileNotFoundError) as exc:
     st.error(f"The dashboard's stored results could not be verified, so nothing is shown. {exc}")
     st.stop()
 
-ui.frame_header()
+ui.frame_header(has_live_elements=any(p.title == page.title and p.key in ("home", "live", "whatif") for p in PAGES))
 page.run()

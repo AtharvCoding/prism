@@ -23,6 +23,12 @@ class PageInfo:
 
 PAGES: tuple[PageInfo, ...] = (
     PageInfo(
+        "home", "views/01_home.py", "The machine", ":material/home:",
+        "A complete regime-aware allocation system, running on real data, and an honest test of it: the regime model and the "
+        "LSTM gave the agent no detectable benefit, on the test split or on the holdout.",
+        shows_weights=True,
+    ),
+    PageInfo(
         "question", "views/02_question.py", "The question", ":material/help:",
         "Does telling an allocation agent which market regime it is in help, once it already has a learned summary of "
         "recent history? That was tested in advance, twice, and no benefit was detected.",
@@ -46,6 +52,18 @@ PAGES: tuple[PageInfo, ...] = (
         "agent", "views/06_agent.py", "The agent", ":material/smart_toy:",
         "Each agent re-weights the portfolio heavily every week ({agents_turnover} of it, against {bench_turnover} for the "
         "benchmarks), and trading costs take a large part of its return.",
+    ),
+    PageInfo(
+        "live", "views/07_live.py", "Live weights", ":material/sensors:",
+        "The frozen agents' latest weekly weights, with how much the ten seeds disagree. A demonstration of the system; the "
+        "agents did not beat simple benchmarks after costs.",
+        shows_weights=True,
+    ),
+    PageInfo(
+        "whatif", "views/08_whatif.py", "What-if lab", ":material/science:",
+        "Tell the agent a different regime and watch what it does. If the allocation barely moves, that is the null result "
+        "in visible form.",
+        shows_weights=True,
     ),
     PageInfo(
         "allocation", "views/09_allocation.py", "Allocation through time", ":material/stacked_line_chart:",

@@ -421,3 +421,172 @@ def test_the_d4_charts_draw_what_they_are_given(mode, recorded_weights):
     for fig in (area, bar, eq, strip, rank, charts.size_bars({"V1": 0.3}, {"V4 vs V2": 0.1}, c), charts.defensive_scatter(1 - sl["Equity"], p, c),
                 charts.duration_ladder(w["mean"], u["bonds"], None, c)):
         assert not FORBIDDEN.search(fig.to_json())
+
+
+# --------------------------------------------------------------------------- D5/D6: live weights, home, what-if
+def _page(key):  # noqa: ANN001, ANN202
+    return next(p for p in PAGES if p.key == key)
+
+
+def test_home_leads_with_the_framing_and_the_null_and_is_the_first_page(rendered):
+    at = rendered["home"]
+    assert PAGES[0].key == "home" and f"> *{ui.FRAMING}*" in [m.value for m in at.markdown]
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["Comparisons passed, holdout"] == "0 of 3" and metrics["Comparisons passed, test split"] == "0 of 3"
+    text = " ".join(m.value for m in at.markdown)
+    assert "no detectable benefit" in text and "did not beat" in text
+
+
+def test_without_the_frozen_models_the_live_page_shows_recorded_weights_and_says_so(rendered, recorded_weights):
+    """No gated replay has been run in the repository: nothing is fetched, the button is off, the source is named."""
+    agents, _ = recorded_weights
+    at = rendered["live"]
+    last = agents.decision_date.max()
+    assert not (ARTIFACTS / "live" / "models_manifest.json").exists()
+    captions = " ".join(c.value for c in at.caption)
+    assert "Not live." in captions and f"{last:%d %b %Y}" in captions and "gated holdout replay" in captions
+    [refresh] = [b for b in at.button if b.label == "Refresh"]
+    assert refresh.disabled
+    table = next(t.value for t in at.table if "weight" in t.value.columns)
+    rows = agents[(agents.variant == "V4") & (agents.decision_date == last)]
+    for line in table.index:
+        assert table.loc[line, "weight"] == pytest.approx(rows[f"w_{line}"].mean(), abs=1e-15)
+        assert table.loc[line, "highest seed"] == rows[f"w_{line}"].max()
+    assert {m.label: m.value for m in at.metric}["Turnover from last week"] == ui.pct(rows.turnover.mean(), 1)
+    assert not any("not a decision" in w.value for w in at.warning)
+
+
+def test_the_live_strategy_toggle_shows_the_benchmarks_by_their_definitions():
+    at = _open(_page("live"))
+    {g.key: g for g in at.button_group}["live_strategy"].set_value("60/40").run()
+    table = next(t.value for t in at.table if "weight" in t.value.columns)
+    assert not at.exception and table.loc["SPY", "weight"] == pytest.approx(0.6) and table.loc["IEF", "weight"] == pytest.approx(0.4)
+    assert {m.label: m.value for m in at.metric}["Equity"] == "60.0%"
+
+
+def _fake_cache(monkeypatch, *, preview: bool):
+    """A live cache built from recorded weights, to exercise the live branches without models or network."""
+    import json
+
+    import pandas as pd
+
+    from components import current, data
+
+    agents = pd.read_parquet(ARTIFACTS / "weights" / "test_agents.parquet")
+    bench = pd.read_parquet(ARTIFACTS / "weights" / "test_benchmarks.parquet")
+    seen = json.loads((ARTIFACTS / "weights" / "test_last_observations.json").read_text())
+    dates = sorted(agents.decision_date.unique())
+    drop = ["decision_date", "execution_date", "cost"]
+    cache = {
+        "as_of": "2023-11-22" if preview else str(dates[-1].date()), "decision_date": str(dates[-1].date()), "is_preview": preview, "window": "test",
+        "models": {"end": "2023-10-31", "hmm_fit_end": "2023-08-24", "encoder_fit_end": "2022-11-23"},
+        "decision": agents[agents.decision_date == dates[-1]].drop(columns=drop),
+        "preview": agents[agents.decision_date == dates[-2]].drop(columns=drop) if preview else None,
+        "benchmarks": bench[(bench.decision_date == dates[-1]) & bench.benchmark.isin(["EqualWeight", "SixtyForty", "RiskParity"])].drop(columns=["decision_date", "turnover", "cost"]),
+        "columns": seen["columns"], "observations": seen["observations"], "latent": [0.1] * 32,
+        "p_volatile": {"2023-11-16": 0.2, "2023-11-17": 0.4, "2023-11-22": 0.9},
+    }
+    monkeypatch.setattr(data, "live_models_manifest", lambda: {"end": "2023-10-31"})
+    monkeypatch.setattr(current.live, "read_cache", lambda _dir: cache)
+    return cache
+
+
+def test_a_cached_live_result_is_badged_and_a_mid_week_preview_is_never_called_a_decision(monkeypatch):
+    _fake_cache(monkeypatch, preview=True)
+    at = _open(_page("live"))
+    assert not at.exception
+    text = " ".join(m.value for m in at.markdown)
+    assert "Cached · as of 2023-11-22" in text and "models last refit 2023-08-24" in text
+    assert [s.value for s in at.subheader][:1] == ["The weekly decision of 17 Nov 2023"]
+    assert "Preview as of the close of 22 Nov 2023" in [s.value for s in at.subheader]
+    assert any("This is **not a decision**" in w.value for w in at.warning)
+    assert "**the live view does not refit anything**" in text
+    [refresh] = [b for b in at.button if b.label == "Refresh"]
+    assert not refresh.disabled
+
+
+def test_a_failed_refresh_keeps_the_cached_result_and_turns_the_badge_stale(monkeypatch):
+    from components import current
+
+    _fake_cache(monkeypatch, preview=False)
+
+    def offline(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise ConnectionError("no route to host")
+
+    monkeypatch.setattr(current.live, "refresh", offline)
+    at = _open(_page("live"))
+    before = next(t.value for t in at.table if "weight" in t.value.columns).copy()
+    [refresh] = [b for b in at.button if b.label == "Refresh"]
+    refresh.click().run()
+    assert not at.exception
+    assert "Stale · as of 2023-11-17" in " ".join(m.value for m in at.markdown)
+    assert any("ConnectionError: no route to host" in c.value and "last good result" in c.value for c in at.caption)
+    assert next(t.value for t in at.table if "weight" in t.value.columns).equals(before)
+
+    def seam(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise current.live.SeamError("data seam check failed for XLK")
+
+    monkeypatch.setattr(current.live, "refresh", seam)
+    at2 = _open(_page("live"))
+    [refresh] = [b for b in at2.button if b.label == "Refresh"]
+    refresh.click().run()
+    assert "Data seam check failed · as of 2023-11-17" in " ".join(m.value for m in at2.markdown)
+
+
+needs_agents = pytest.mark.skipif(not (ROOT / "data" / "processed" / "tier2" / "runs" / "final").exists(),
+                                  reason="the 40 trained checkpoints are not in the repository (data/processed is not committed)")
+
+
+@needs_agents
+def test_the_what_if_lab_at_today_equals_the_live_weights_exactly(recorded_weights):
+    """D6 acceptance: with the input untouched the lab shows the same weights as the Live page."""
+    agents, _ = recorded_weights
+    at = _open(_page("whatif"))
+    assert not at.exception and any("**Showing the actual input, untouched.**" in c.value for c in at.caption)
+    metrics = {m.label: (m.value, m.delta) for m in at.metric}
+    last = agents.decision_date.max()
+    rows = agents[(agents.variant == "V4") & (agents.decision_date == last)]
+    u = dd_facts()["universe"]
+    equity = sum(rows[f"w_{t}"].mean() for t in u["sectors"])
+    assert metrics["Equity"] == (ui.pct(equity, 1), "+0.0 pp") and all(m[1] in ("+0.0 pp", "-0.0 pp") for k, m in metrics.items() if k in theme.SLEEVES)
+    live_at = _open(_page("live"))
+    assert {m.label: m.value for m in live_at.metric}["Equity"] == metrics["Equity"][0]
+
+
+@needs_agents
+def test_the_what_if_slider_moves_v4_and_the_page_compares_the_effect_with_seed_disagreement():
+    at = _open(_page("whatif"))
+    before = {m.label: m.value for m in at.metric}
+    at.slider[0].set_value(1.0).run()
+    after = {m.label: (m.value, m.delta) for m in at.metric}
+    assert not at.exception and any("Showing P(Volatile) = 1.00" in c.value for c in at.caption)
+    assert any(after[k][0] != before[k] for k in theme.SLEEVES)
+    assert "Regime effect" in after and "Seed disagreement" in after and after["Regime effect"][0].endswith(" pp")
+    text = " ".join(m.value for m in at.markdown) + " ".join(c.value for c in at.caption)
+    assert "by construction the slider changes nothing for them" in text and "is a counterfactual" in text
+    [today] = [b for b in at.button if b.label == "Today"]
+    today.click().run()
+    assert any("**Showing the actual input, untouched.**" in c.value for c in at.caption)
+    {g.key: g for g in at.button_group}["whatif_variant"].set_value("C4").run()
+    assert not at.exception and any("This control is binary" in c.value for c in at.caption)
+    at.radio[0].set_value("VIX high").run()
+    assert not at.exception
+
+
+@pytest.mark.parametrize("mode", ["light", "dark"])
+def test_the_live_and_lab_charts_draw_what_they_are_given(mode):
+    import numpy as np
+    import pandas as pd
+
+    c = theme.palette(mode)
+    donut = charts.sleeve_donut(pd.Series({"Equity": 0.5, "Bonds": 0.3, "Gold": 0.2, "Cash": 0.0}), c)
+    assert list(donut.data[0].labels) == ["Equity", "Bonds", "Gold"] and sum(donut.data[0].values) == pytest.approx(1.0)
+    sweep = pd.DataFrame({"Equity": [0.6, 0.5], "Bonds": [0.2, 0.3], "Gold": [0.1, 0.1], "Cash": [0.1, 0.1]}, index=[0.0, 1.0])
+    lines_ = charts.sweep_lines(sweep, {"V1 equity (no regime input)": 0.55}, 0.2, c)
+    assert [t.name for t in lines_.data] == [*theme.SLEEVES, "V1 equity (no regime input)"] and list(lines_.data[-1].y) == [0.55, 0.55]
+    change = charts.change_bars(pd.Series({"XLK": 0.02, "CASH": -0.02}), {"XLK": "Equity", "CASH": "Cash"}, c)
+    assert np.allclose(change.data[0].y, [2.0, -2.0])
+    pipe = charts.pipeline([("Prices", "23 series"), ("Features", "184 numbers"), ("Weights", "14")], c)
+    assert len(pipe.frames) == 3
+    for fig in (donut, lines_, change, pipe, charts.latent_spark([0.1, -0.2], c)):
+        assert not FORBIDDEN.search(fig.to_json())
