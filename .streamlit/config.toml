@@ -1,0 +1,13 @@
+# Streamlit settings for `make dashboard` (run from the repository root). DASHBOARD.md §3.
+# No theme is forced: the app follows the viewer's light or dark setting, and the charts pick
+# their colours for whichever is active (dashboard/components/theme.py).
+
+[browser]
+gatherUsageStats = false      # the live-data refresh (milestone D5) is the only network access
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = "type"
+
+[server]
+address = "localhost"         # local only (DECISIONS.md D-043): not served on the network interfaces
