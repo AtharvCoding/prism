@@ -52,15 +52,14 @@ results on it are exploratory; the holdout stays reserved for step 5.
 385 passed
 ```
 
-**Dashboard (in progress; `DASHBOARD.md`).** A Streamlit app that explains the project and shows the stored results. Milestones D0 and D1
-are built: the shell and the static pages (the question, data and universe, the agent, results, verdict), reading
-`dashboard/artifacts/`, which are byte-for-byte copies of the stored tables checked against `reports/final_report.md`.
-`make dashboard-install` (adds pinned streamlit and plotly), then `make dashboard`. With that group installed the suite is
-`442 passed`; without it the app tests are skipped. See DECISIONS.md D-043 to D-046.
+**Dashboard (`DASHBOARD.md`; DECISIONS.md D-043 to D-051).** A Streamlit app that explains the project end to end, shows the
+frozen system running, and reports the null result as it came out. See "Dashboard" below. With its dependency group installed the
+suite is `528 passed`.
 
-No skips and no xfails remain: every spec §7 contract is a real test, and the
+No skips and no xfails remain in the research suite: every spec §7 contract is a real test, and the
 environment, cost and state tests run on synthetic paths with hand-computed
-answers.
+answers. (The dashboard's app tests are skipped where its optional dependency group is not installed,
+and its two What-if tests where the trained checkpoints, which are not committed, are absent.)
 
 **Step 1 deliverables:** the real snapshot (2026-10-01, 23 tickers,
 1990-01-02 .. 2026-09-30); both universes built, truncated to the non-holdout
@@ -124,6 +123,49 @@ One thing worth your close attention before Step 3b:
   carries the full raw feature set alongside the latent, not yet buildable
   without state assembly). A strong prior that gate may fail, not a
   substitute for running it.
+
+---
+
+## Dashboard
+
+```bash
+make dashboard-install   # adds pinned streamlit and plotly to the venv; changes no existing pin
+make dashboard           # http://localhost:8501 (bound to localhost; usage statistics off)
+make dashboard-check     # verify dashboard/artifacts against their manifest and reports/final_report.md
+make dashboard-data      # rebuild the artifacts, every stage that is not gated (about 8 minutes)
+```
+
+Eleven pages in story order: the machine (home), the question, data and universe, regimes, LSTM latent, the agent, live
+weights, what-if lab, allocation through time, results, verdict. Every page has a one-line takeaway and a "How to read this"
+panel. The app computes no statistic for the verdict: the tables shown are byte-for-byte copies of the stored ones, and 130
+rows built from them are matched against `reports/final_report.md` whenever the artifacts are built or checked.
+
+**What runs without the holdout.** Everything in `make dashboard-data`. It reads stored results, replays the 40 frozen agents
+on the *test* split to record their weekly weights (all 184 stored daily series reproduced exactly), and re-runs the
+walk-forward to the test split's end for the regime model's parameters.
+
+**The one gated step.** Recording the agents' weights on the *holdout* weeks and freezing the last-fold models for the live
+view needs holdout-period data again. It is pre-registered as a descriptive replay with no statistic
+(`reports/tables/preregistration_holdout.md`, Amendment 1), sits behind the same two keys as the evaluation, and is typed by
+hand:
+
+```bash
+PRISM_ALLOW_HOLDOUT=1 .venv/bin/python scripts/10_dashboard_data.py --stage holdout-replay --i-am-sure
+```
+
+About seven minutes. It aborts, writing nothing, unless the re-run states and all 184 replayed daily series equal the stored
+ones to 1e-9. Afterwards commit `dashboard/artifacts`. Until it is run, the allocation page stops at the end of the test split
+and the Live weights, Home and What-if pages show the last *recorded* decision, labelled as not live, with the Refresh button off.
+
+**Live view.** After the gated step, Refresh fetches the latest daily closes, joins them to the frozen snapshot only if the two
+agree over their last 60 common sessions, runs the frozen (never refitted) models forward, and continues each agent's episode
+from the holdout's first decision. A decision is taken at a week's last close; mid-week the page adds a labelled preview. If a
+refresh fails, the last good result stays up with a red badge. The weights are a demonstration of a frozen system, not a
+recommendation: the agents did not beat equal weight, 60/40 or risk parity after costs.
+
+Code: `dashboard/` (app, `views/`, `components/`, committed `artifacts/`), `src/prism/dashboard_data.py` (stored and derived
+stages), `src/prism/dashboard_replay.py` (replay and fold parameters), `src/prism/live.py` (frozen-model forward passes,
+splice, rollout, refresh), `scripts/10_dashboard_data.py`. Tests: `tests/test_dashboard_{data,replay,app}.py`.
 
 ---
 

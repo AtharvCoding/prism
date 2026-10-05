@@ -1468,3 +1468,33 @@ if the vendor's history disagrees with the snapshot beyond 1e-3 in daily returns
    across the sweep; "seed disagreement" is the highest minus the lowest seed's share of that sleeve at the actual input. On the recorded 2023-11-17 observation they are 3.8 and 93.0
    percentage points: the ten V4 agents ranged from 6.5% to 99.6% equity that day. The page states which is larger and words the conclusion accordingly in either case.
 8. **Agents are loaded once per server process** (`st.cache_resource`), after verifying all 46 pinned hashes. The What-if tests need the checkpoints and are skipped where `data/processed` is absent.
+
+### D-051 · Dashboard D7: hardening, and the reviewer checklist of DASHBOARD.md §10 as it stands
+**Date:** 2026-10-06 · **Status:** built through D7 with the exceptions listed; the gated holdout replay is the principal investigator's to run
+
+Checked in a browser at desktop width in light and dark, and at phone width (375 px) on the Results and Home pages; every page is also run through `AppTest`. Measured in `AppTest` on this
+machine: first render of a page 0.1 to 0.6 s (What-if 1.7 s, loading the 40 agents once per server process), re-render from cache 0.01 to 0.09 s; cold start (import and first page) 1.1 s.
+
+| §10 item | State |
+|---|---|
+| One-line takeaway and "How to read this" on every page | Done; tested for all 11 pages. |
+| Permanent caption on every page that shows weights; no page implies the agents beat anything, predict, or should be followed | Done; the caption is tested to appear exactly on Home, Live weights, What-if and Allocation; a forbidden-wording pattern is run over every page's text and every chart's text. |
+| Every headline number matches `reports/final_report.md` (automated) | Done; 130 rows, at build time, in `make dashboard-check` and in the tests. |
+| The null is the headline of Home, Results and Verdict; the sign flip is visible; benchmarks and turnover on Results | Done. |
+| The holdout is labelled spent; nothing selects or tunes on it; the §5.4 amendment exists and is committed | Done (`c14c9f4`). |
+| No frozen artifact was modified | Done: `make dashboard-verify-frozen` passes against the D0 baseline of 532 files; `reports/logs/holdout_access.jsonl` still has its one line. |
+| Live weights: freshness badge, splice check, offline fallback, "models last refit", rollout definition | Built and tested with a stand-in cache and stand-in failures; rehearsed end to end on test-split data (D-050). **Not yet exercised for real**: needs the gated replay. |
+| What-if at "Today" equals live weights; sweep and seed-spread numbers together | Done; tested. |
+| Cold start < 5 s, page switch < 1 s, refresh < 20 s; works offline from cache | Cold start and page switch measured (above) and tested. Refresh was not timed against the vendor; the rehearsal's two refreshes of 40 agents took about 25 s together on a loaded machine. Offline: every page but the Refresh button works with no network. |
+| Tests for `prism.live` and `prism.dashboard_data`; `AppTest` for each page; the existing 385 still pass | Done: 528 passed (385 + 143). |
+| Colour-blind-safe palette; light and dark; phone width | Palette validated with the dataviz validator for each set (variants on adjacent pairs with a second encoding for C4; regimes and sleeves on all pairs). Light, dark and phone width checked by eye, not by test. |
+| `DECISIONS.md` entries; README section; `make dashboard-install`, `dashboard-data`, `dashboard` | Done (D-043 to D-051). |
+
+**Not done, deliberately or for lack of the gated run.**
+1. Everything that needs holdout-period weights or the holdout-fitted models: the 2024-2026 part of the allocation page, HMM folds 204-236, the real live view. The code path is the one already run on the test split.
+2. The "sealed, then opened once" lock animation on the Data page (§7.3) is static text and icons. The Home pipeline animates on a button, not on load.
+3. Hosting (D-043: local only).
+4. A browser-level test of the Plotly animations and of theme switching; they were checked by eye.
+
+**One thing a reader of the lab should know.** On the recorded observation of 2023-11-17 the ten V4 agents hold between 6.5% and 99.6% equity. That is in the recorded weights, not an artefact of
+the lab: across the test split the median weekly gap between the highest and lowest seed's equity share is 72 percentage points. It is the seed variance the report describes, seen in holdings.
