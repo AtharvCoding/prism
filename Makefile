@@ -12,7 +12,8 @@ export PYTHONHASHSEED = 0
 .DEFAULT_GOAL := help
 .PHONY: help venv install test test-fast test-causality lint snapshot snapshot-dry \
         features hmm encoder states tier1 backtest report clean-reports phase-a env-check \
-        tier2 tier2-sanity tier2-smoke final-report holdout-rehearsal
+        tier2 tier2-sanity tier2-smoke final-report holdout-rehearsal \
+        dashboard-install dashboard-verify-frozen
 
 help:  ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -90,6 +91,13 @@ final-report:  ## Step 5: regenerate the consolidated final report from stored r
 
 holdout-rehearsal:  ## Step 5: exercise the whole holdout path on the validation split (never opens the holdout)
 	$(PYTHON) scripts/99_final_holdout.py --rehearse
+
+# --- Dashboard (DASHBOARD.md) --------------------------------------------- #
+dashboard-install:  ## Dashboard: add the pinned streamlit/plotly group to the existing venv
+	.venv/bin/pip install -e ".[dev,dashboard]"
+
+dashboard-verify-frozen:  ## Dashboard: check every frozen data file against the D0 SHA-256 baseline
+	shasum -a 256 -c --quiet dashboard/frozen_sources.sha256 && echo "frozen files match the baseline"
 
 # --- Phase B (spec §0.3) -------------------------------------------------- #
 # Deliberately absent: there is no `holdout` target; the one real run is typed by hand:

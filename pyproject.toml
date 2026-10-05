@@ -37,6 +37,13 @@ dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
 ]
+# The Streamlit dashboard (DASHBOARD.md; DECISIONS.md D-045). Kept out of the core
+# dependencies so `make install` and the research pipeline are unchanged; installing
+# this group adds packages and changes no existing pin (checked with a dry run).
+dashboard = [
+    "streamlit==1.65.0",
+    "plotly==7.1.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
