@@ -1413,3 +1413,24 @@ stored summary, whose VIX states were checked equal to the C2 state file at buil
    tie rule are computed from the table and the config.
 5. **Latent map**: a year selector over the 20 encoder folds, defaulting to the latest recession year; within a year, Plotly animation frames by month. Colour is the diverging Calm-grey-Volatile
    scale on P(Volatile). An information box says positions are not comparable between years. The crisis tags on the selector come from the NBER file and the stored SPY drawdown episodes.
+
+### D-049 · Dashboard D4: Allocation through time, and the Results page's interactive parts
+**Date:** 2026-10-06 · **Status:** implemented; milestone D4 of DASHBOARD.md §8 · choices mine
+
+Acceptance, both tested: the weights shown for a selected week equal the recorded replay's (the ensemble mean, lowest and highest seed, and the mean turnover, compared to 1e-15 through the
+rendered page); the cost slider returns exactly the stored value at each of 0, 5, 10 and 20 bps and a straight line between neighbours.
+
+1. **The allocation page shows what has been recorded.** Until the gated holdout replay is run it covers the test split's 255 decisions and says so in a notice; when
+   `weights/holdout_*.parquet` exist they are appended and the holdout boundary is marked. No page fabricates or estimates a holdout weight.
+2. **"Ensemble" is the plain average of a variant's ten agents' target weights.** The caption says it summarises what they held and that no averaged portfolio was evaluated. Whiskers on the
+   one-week chart are the lowest and highest seed.
+3. **The regime is a strip above the stacked sleeves, not shading behind them** (deviation from §7 page 9): four sleeve colours over two regime colours mix into hues that mean nothing. The
+   strip is P(Volatile) on each decision day, on the shared time axis.
+4. **The defensive-share scatter prints a Pearson correlation.** It is a description of those weeks, labelled as untested and with the caveat that neighbouring weeks are not independent; it
+   enters nothing. The S&P 500 fund held by the 60/40 and buy-and-hold benchmarks counts as the Equity sleeve.
+5. **The 2022 highlight on the duration ladder** is the stored S&P 500 drawdown episode of that year (peak to trough), and the "bonds did not cushion" remark is backed by a stored number: the
+   60/40 benchmark's decline over those weeks.
+6. **Results.** The forest plot's measure and block-length selectors choose among the stored `paired_block{10,20,40}` tables; the sentence about intervals crossing zero and signs flipping is
+   computed from whichever table is shown. Seed noise is two views on one unit: a strip of the 40 agents' stored Sharpe ratios with the benchmarks as ticks, and bars comparing the seed spread
+   with the between-variant gaps. Per-seed deflated Sharpe uses the derived `seed_dsr.csv` (D-047). Equity curves are cumulated from the stored daily returns: a variant is its median seed with a
+   band from its lowest to its highest seed, and the zoom list is the stored drawdown episodes. The cost ranking interpolates linearly and labels itself "Interpolated" off the stored levels.

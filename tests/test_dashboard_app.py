@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "dashboard" / "app.py"
 sys.path.insert(0, str(APP.parent))
 
-from components import charts, theme, ui  # noqa: E402
+from components import alloc, charts, theme, ui  # noqa: E402
 from components.registry import PAGES  # noqa: E402
 
 ARTIFACTS = ROOT / dd.ARTIFACTS
@@ -135,6 +135,8 @@ def test_the_results_page_shows_the_final_reports_rows_for_both_windows(rendered
     at = rendered["results"]
     tables = [t.value for t in at.table]
     assert [t.label for t in at.tabs] == ["Holdout (confirmatory, one use)", "Test split (exploratory)"]
+    tables = [t for t in tables if "comparison" in t.columns or "candidate" in t.columns or "variant" in t.columns
+              or "strategy" in t.columns or t.index.name == "strategy"]
     for i, window in enumerate(("holdout", "test")):
         gates, differences, variants, costs, dsr = tables[5 * i: 5 * i + 5]
         res = dd.load_results(ARTIFACTS, window)
@@ -293,3 +295,129 @@ def test_the_regime_charts_shade_each_day_once_and_never_use_forbidden_wording(m
     for figure in (fig, strips, lm, charts.fold_volatility(pd.read_csv(ARTIFACTS / "regimes" / "hmm_folds_test.csv", parse_dates=["apply_start"]), c),
                    charts.k_selection(pd.read_csv(ARTIFACTS / "regimes" / "k_selection.csv"), 2.0, c)):
         assert not FORBIDDEN.search(figure.to_json())
+
+
+# --------------------------------------------------------------------------- D4: allocation through time, results interactivity
+@pytest.fixture(scope="module")
+def recorded_weights():
+    import pandas as pd
+
+    return (pd.read_parquet(ARTIFACTS / "weights" / "test_agents.parquet"), pd.read_parquet(ARTIFACTS / "weights" / "test_benchmarks.parquet"))
+
+
+def test_an_ensemble_is_the_seed_average_of_the_recorded_weights_and_sleeves_add_up(recorded_weights):
+    import numpy as np
+
+    agents, bench = recorded_weights
+    u = dd_facts()["universe"]
+    w = alloc.strategy_weights(agents, bench, "V4 ensemble")
+    week = w["mean"].index[100]
+    rows = agents[(agents.variant == "V4") & (agents.decision_date == week)]
+    for line in alloc.lines(u):
+        assert w["mean"].loc[week, line] == pytest.approx(rows[f"w_{line}"].mean(), abs=1e-15)
+        assert w["low"].loc[week, line] == rows[f"w_{line}"].min() and w["high"].loc[week, line] == rows[f"w_{line}"].max()
+    sl = alloc.sleeves(w["mean"], u)
+    assert list(sl.columns) == ["Equity", "Bonds", "Gold", "Cash"] and np.allclose(sl.sum(axis=1), 1.0)
+    assert sl.loc[week, "Equity"] == pytest.approx(w["mean"].loc[week, u["sectors"]].sum())
+    assert np.allclose(alloc.defensive_share(w["mean"], u), 1.0 - sl["Equity"])
+    sixty = alloc.sleeves(alloc.strategy_weights(agents, bench, "60/40")["mean"], u)
+    assert np.allclose(sixty["Equity"], 0.6) and np.allclose(sixty["Bonds"], 0.4)       # the S&P 500 fund counts as equity
+    assert alloc.strategies(["V1", "V2", "V4", "C4"])[0] == "V4 ensemble"
+
+
+def test_the_allocation_page_shows_the_recorded_weights_for_the_selected_week(recorded_weights):
+    """D4 acceptance: selected-week weights equal the stored replay."""
+    agents, _ = recorded_weights
+    at = _open(next(p for p in PAGES if p.key == "allocation"))
+    dates = sorted(agents.decision_date.unique())
+    week = dates[57]
+    at.select_slider[0].set_value(week).run()
+    assert not at.exception
+    table = next(t.value for t in at.table if "target weight" in t.value.columns)
+    rows = agents[(agents.variant == "V4") & (agents.decision_date == week)]
+    for line in table.index:
+        assert table.loc[line, "target weight"] == pytest.approx(rows[f"w_{line}"].mean(), abs=1e-15)
+        assert table.loc[line, "lowest seed"] == rows[f"w_{line}"].min()
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["Turnover that week"] == ui.pct(rows.turnover.mean(), 1)
+    assert f"*{ui.WEIGHTS_CAPTION}*" in [c.value for c in at.caption]
+    at.selectbox[0].set_value("Risk parity").run()
+    assert not at.exception and {m.label: m.value for m in at.metric}["Turnover that week"] == "n/a"
+
+
+def test_the_cost_slider_is_exact_at_the_stored_levels_and_linear_between_them():
+    """D4 acceptance: the slider's endpoints (and every stored level) equal the stored numbers."""
+    import pandas as pd
+
+    for window in ("test", "holdout"):
+        cost = pd.read_csv(ARTIFACTS / window / "tables" / "cost_sensitivity.csv")
+        for bps in sorted(cost.bps.unique()):
+            got = alloc.interpolate_costs(cost, bps)
+            stored = cost[cost.bps == bps].set_index("strategy").sharpe
+            assert (got[stored.index] == stored).all() and got.is_monotonic_decreasing
+        mid = alloc.interpolate_costs(cost, 7.5)
+        lo, hi = (cost[cost.bps == b].set_index("strategy").sharpe for b in (5.0, 10.0))
+        assert mid["V4"] == pytest.approx((lo["V4"] + hi["V4"]) / 2)
+        with pytest.raises(ValueError):
+            alloc.interpolate_costs(cost, 25.0)
+
+
+def test_equity_curves_are_the_cumulated_stored_returns():
+    import pandas as pd
+
+    daily = pd.read_parquet(ARTIFACTS / "holdout" / "eval_daily.parquet")
+    curves = alloc.equity_curves(daily, ["V4|s3", "BM|EqualWeight"], 5.0)
+    assert curves["V4|s3"].iloc[-1] == pytest.approx((1 + daily["V4|s3|5"]).prod()) and list(curves.columns) == ["V4|s3", "BM|EqualWeight"]
+
+
+def test_the_results_selectors_draw_the_stored_tables_and_the_slider_labels_interpolation():
+    import pandas as pd
+
+    at = _open(next(p for p in PAGES if p.key == "results"))
+    groups = {g.key: g for g in at.button_group}
+    groups["forest_metric"].set_value("max_drawdown").run()
+    groups = {g.key: g for g in at.button_group}
+    groups["forest_block"].set_value(40).run()
+    assert not at.exception
+    text = " ".join(m.value for m in at.markdown)
+    test, hold = (pd.read_csv(ARTIFACTS / w / "tables" / "paired_block40.csv") for w in ("test", "holdout"))
+    flips = dd.sign_flips(test, hold, "max_drawdown")
+    crossing = sum(int(r.ci_low < 0 < r.ci_high) for t in (test, hold) for r in t[t.metric == "max_drawdown"].itertuples())
+    assert f"**{crossing} of the 6 intervals shown cross zero.**" in text and "difference in maximum drawdown" in text
+    assert f"For {int(flips.flipped.sum())} of the 3 comparisons" in text
+    at.slider[0].set_value(7.5).run()
+    captions = " ".join(c.value for c in at.caption)
+    assert not at.exception and "**Interpolated**: 7.5 basis points is between two stored cost levels" in captions
+    at.slider[0].set_value(20.0).run()
+    assert "Stored values at 20 basis points." in " ".join(c.value for c in at.caption)
+
+
+@pytest.mark.parametrize("mode", ["light", "dark"])
+def test_the_d4_charts_draw_what_they_are_given(mode, recorded_weights):
+    import numpy as np
+    import pandas as pd
+
+    c, u = theme.palette(mode), dd_facts()["universe"]
+    agents, bench = recorded_weights
+    w = alloc.strategy_weights(agents, bench, "V4 ensemble")
+    sl = alloc.sleeves(w["mean"], u)
+    p = pd.read_parquet(ARTIFACTS / "regimes" / "daily.parquet").p_volatile.reindex(sl.index)
+    area = charts.allocation_area(sl, p, None, c)
+    assert [t.name for t in area.data[1:]] == list(theme.SLEEVES) and list(area.data[1].y) == sl["Equity"].tolist()
+    assert area.data[0].type == "heatmap"                                    # the regime is a strip above, never behind the sleeves
+    week = sl.index[-1]
+    bar = charts.weights_bar(w["mean"].loc[week, alloc.lines(u)], w["low"].loc[week, alloc.lines(u)], w["high"].loc[week, alloc.lines(u)],
+                             alloc.sleeve_of(u), 0.35, c)
+    assert sum(len(t.x) for t in bar.data) == 14
+    daily = pd.read_parquet(ARTIFACTS / "holdout" / "eval_daily.parquet")
+    names = [f"V4|s{s}" for s in range(10)] + ["BM|EqualWeight"]
+    eq = charts.equity_chart(alloc.equity_curves(daily, names, 5.0), ["V4"], list(range(10)), ["EqualWeight"], c)
+    median = alloc.equity_curves(daily, names, 5.0)[[f"V4|s{s}" for s in range(10)]].median(axis=1)
+    assert np.allclose(eq.data[-1].y, median)
+    strip = charts.seed_strip({v: np.linspace(0.1, 0.9, 10) for v in theme.VARIANTS}, {"BM|EqualWeight": 0.8}, "x", c, bar=0.95)
+    assert len(strip.data) == 5 and all(len(t.y) == 10 for t in strip.data[:4])
+    rank = charts.cost_rank(alloc.interpolate_costs(pd.read_csv(ARTIFACTS / "holdout" / "tables" / "cost_sensitivity.csv"), 5.0), c)
+    assert list(rank.data[0].x) == sorted(rank.data[0].x)
+    for fig in (area, bar, eq, strip, rank, charts.size_bars({"V1": 0.3}, {"V4 vs V2": 0.1}, c), charts.defensive_scatter(1 - sl["Equity"], p, c),
+                charts.duration_ladder(w["mean"], u["bonds"], None, c)):
+        assert not FORBIDDEN.search(fig.to_json())

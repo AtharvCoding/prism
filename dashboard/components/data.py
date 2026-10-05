@@ -137,3 +137,19 @@ def weights(kind: str) -> pd.DataFrame:
 def live_models_manifest() -> dict[str, Any] | None:
     path = ARTIFACTS / "live" / "models_manifest.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+@st.cache_data(show_spinner=False)
+def seed_metrics(window: str) -> pd.DataFrame:
+    """The stored per-seed metrics of every variant in one window (one row per variant and seed)."""
+    parts = []
+    for v in facts()["agents"]["variants"]:
+        f = pd.read_csv(ARTIFACTS / window / "tables" / f"seed_metrics_{v}.csv", index_col=0).rename_axis("seed").reset_index()
+        f.insert(0, "variant", v)
+        parts.append(f)
+    return pd.concat(parts, ignore_index=True)
+
+
+@st.cache_data(show_spinner=False)
+def benchmark_metrics(window: str) -> pd.DataFrame:
+    return pd.read_csv(ARTIFACTS / window / "tables" / "benchmark_metrics.csv", index_col=0)

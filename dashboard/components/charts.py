@@ -285,3 +285,156 @@ def latent_map(points: pd.DataFrame, c: dict[str, Any]) -> go.Figure:
                   "steps": [{"label": m.strftime("%b"), "method": "animate",
                              "args": [[str(m)], {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"}]} for m in months]}],
     )
+
+
+# --------------------------------------------------------------------------- allocation through time (page 9)
+def allocation_area(sleeves: pd.DataFrame, p_volatile: pd.Series, holdout_start: pd.Timestamp | None, c: dict[str, Any]) -> go.Figure:
+    """Stacked sleeves per weekly decision, with the HMM's P(Volatile) on those dates as a strip above (never behind)."""
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.09, 0.91], vertical_spacing=0.03)
+    fig.add_trace(go.Heatmap(x=p_volatile.index, y=["P(Volatile)"], z=[p_volatile.to_numpy()], zmin=0, zmax=1, showscale=False,
+                             colorscale=theme.regime_scale(c), hovertemplate="%{x|%d %b %Y}<br>P(Volatile) %{z:.2f}<extra></extra>"), row=1, col=1)
+    for name in theme.SLEEVES:
+        fig.add_trace(go.Scatter(x=sleeves.index, y=sleeves[name], name=name, mode="lines", stackgroup="one",
+                                 line={"width": 1, "color": c["surface"]}, fillcolor=c["sleeves"][name],
+                                 hovertemplate=f"{name} %{{y:.1%}}<extra></extra>"), row=2, col=1)
+    if holdout_start is not None:
+        fig.add_vline(x=holdout_start, line={"color": c["ink"], "width": 1}, row=2, col=1)
+        fig.add_annotation(x=holdout_start, y=1.0, yref="y2", xanchor="left", yanchor="bottom", showarrow=False, xshift=4,
+                           text="holdout from here", font={"color": c["ink_2"], "size": 12})
+    fig.update_yaxes(tickformat=".0%", range=[0, 1], title_text="share of the portfolio", row=2, col=1)
+    fig.update_yaxes(showgrid=False, row=1, col=1)
+    fig.update_xaxes(showgrid=False)
+    fig = theme.style(fig, c, height=430)
+    return fig.update_layout(hovermode="x unified", legend={"y": 1.04, "traceorder": "normal"})
+
+
+def weights_bar(weights: pd.Series, low: pd.Series | None, high: pd.Series | None, sleeve_of: dict[str, str], cap: float,
+                c: dict[str, Any]) -> go.Figure:
+    """One week's weights by holding, coloured by sleeve; whiskers span the lowest and highest seed."""
+    error = None
+    if low is not None and high is not None:
+        error = {"type": "data", "symmetric": False, "array": (high - weights).clip(lower=0).to_numpy(),
+                 "arrayminus": (weights - low).clip(lower=0).to_numpy(), "color": c["ink_2"], "thickness": 1.5, "width": 4}
+    fig = go.Figure()
+    for sleeve in theme.SLEEVES:
+        names = [n for n in weights.index if sleeve_of[n] == sleeve]
+        if not names:
+            continue
+        idx = [list(weights.index).index(n) for n in names]
+        err = None if error is None else {**error, "array": error["array"][idx], "arrayminus": error["arrayminus"][idx]}
+        fig.add_trace(go.Bar(x=names, y=weights[names], name=sleeve, width=0.55, marker={"color": c["sleeves"][sleeve], "line": {"width": 0}},
+                             error_y=err, hovertemplate="%{x}: %{y:.1%}<extra>" + sleeve + "</extra>"))
+    fig.add_hline(y=cap, line={"color": c["muted"], "width": 1}, annotation_text=f"cap on a risky asset: {cap:.0%}",
+                  annotation_position="top left", annotation_font={"color": c["ink_2"], "size": 12})
+    top = float(max(cap * 1.2, (high.max() if high is not None else weights.max()) * 1.1))
+    fig.update_yaxes(tickformat=".0%", range=[0, top], title_text="target weight")
+    fig.update_xaxes(categoryorder="array", categoryarray=list(weights.index))
+    return theme.style(fig, c, height=340)
+
+
+def defensive_scatter(defensive: pd.Series, p_volatile: pd.Series, c: dict[str, Any]) -> go.Figure:
+    """One dot per weekly decision: the non-equity share against the HMM's P(Volatile) that day."""
+    both = pd.concat([p_volatile.rename("p"), defensive.rename("d")], axis=1).dropna()
+    fig = go.Figure(go.Scatter(x=both.p, y=both.d, mode="markers", showlegend=False,
+                               marker={"size": 8, "color": c["accent"], "opacity": 0.55, "line": {"color": c["surface"], "width": 1}},
+                               customdata=both.index.strftime("%d %b %Y"),
+                               hovertemplate="%{customdata}<br>P(Volatile) %{x:.2f}<br>defensive share %{y:.1%}<extra></extra>"))
+    fig.update_xaxes(title_text="P(Volatile) on the decision day", range=[-0.03, 1.03])
+    fig.update_yaxes(title_text="bonds + gold + cash", tickformat=".0%", range=[0, 1])
+    return theme.style(fig, c, height=340, legend=False)
+
+
+def duration_ladder(weights: pd.DataFrame, bonds: list[str], highlight: tuple[str, str] | None, c: dict[str, Any]) -> go.Figure:
+    """The bond sleeve split by maturity, short to long, one blue ramp light to dark."""
+    fig = go.Figure()
+    for name, color in zip(bonds, c["ordinal"][:len(bonds)] if c["mode"] == "light" else c["ordinal"][-len(bonds):][::-1]):
+        fig.add_trace(go.Scatter(x=weights.index, y=weights[name], name=name, mode="lines", stackgroup="one",
+                                 line={"width": 1, "color": c["surface"]}, fillcolor=color, hovertemplate=f"{name} %{{y:.1%}}<extra></extra>"))
+    if highlight is not None:
+        fig.add_vrect(x0=highlight[0], x1=highlight[1], fillcolor=c["ink"], opacity=0.07, line_width=0,
+                      annotation_text=highlight[0][:4], annotation_position="top left", annotation_font={"color": c["ink_2"], "size": 12})
+    fig.update_yaxes(tickformat=".0%", title_text="share of the portfolio", rangemode="tozero")
+    fig.update_xaxes(showgrid=False)
+    fig = theme.style(fig, c, height=300)
+    return fig.update_layout(hovermode="x unified")
+
+
+# --------------------------------------------------------------------------- results interactivity (page 10)
+def seed_strip(values: dict[str, np.ndarray], benchmarks: dict[str, float], title: str, c: dict[str, Any], *, bar: float | None = None,
+               fmt: str = ".2f") -> go.Figure:
+    """One dot per seed, a column per variant; the benchmarks' single values as grey ticks; optionally a bar to clear."""
+    fig = go.Figure()
+    rng = np.random.default_rng(0)
+    for i, v in enumerate(theme.VARIANTS):
+        y = np.asarray(values[v], dtype=float)
+        fig.add_trace(go.Scatter(x=i + rng.uniform(-0.12, 0.12, len(y)), y=y, mode="markers", name=v,
+                                 marker={"size": 9, "color": c["variants"][v], "symbol": theme.VARIANT_SYMBOL[v], "line": {"color": c["surface"], "width": 1.5}},
+                                 customdata=np.arange(len(y)), hovertemplate=f"{v} seed %{{customdata}}: %{{y:{fmt}}}<extra></extra>"))
+        fig.add_shape(type="line", x0=i - 0.25, x1=i + 0.25, y0=float(y.mean()), y1=float(y.mean()), line={"color": c["ink"], "width": 2})
+    if benchmarks:
+        fig.add_trace(go.Scatter(x=[len(theme.VARIANTS)] * len(benchmarks), y=list(benchmarks.values()), mode="markers", name="Benchmarks",
+                                 marker={"size": 16, "color": c["context"], "symbol": "line-ew", "line": {"color": c["ink_2"], "width": 2}},
+                                 customdata=[strategy_label(k) for k in benchmarks], hovertemplate=f"%{{customdata}}: %{{y:{fmt}}}<extra></extra>"))
+    if bar is not None:
+        fig.add_hline(y=bar, line={"color": c["ink_2"], "width": 1}, annotation_text=f"bar to clear: {bar:g}", annotation_position="top left",
+                      annotation_font={"color": c["ink_2"], "size": 12})
+    labels = [*theme.VARIANTS, "Benchmarks"] if benchmarks else list(theme.VARIANTS)
+    fig.update_xaxes(tickvals=list(range(len(labels))), ticktext=labels, range=[-0.5, len(labels) - 0.5], showgrid=False)
+    fig.update_yaxes(title_text=title, tickformat=fmt)
+    return theme.style(fig, c, height=340)
+
+
+def size_bars(spread: dict[str, float], gaps: dict[str, float], c: dict[str, Any]) -> go.Figure:
+    """On one Sharpe-ratio axis: how much seeds of one variant differ, against how much variants differ from each other."""
+    names = [*(f"{k} seeds" for k in spread), *gaps]
+    vals = [*spread.values(), *gaps.values()]
+    cols = [*(c["context"] for _ in spread), *(c["ink"] for _ in gaps)]
+    fig = go.Figure(go.Bar(y=names[::-1], x=vals[::-1], orientation="h", width=0.5, marker={"color": cols[::-1], "line": {"width": 0}},
+                           text=[f"{v:.2f}" for v in vals[::-1]], textposition="outside", cliponaxis=False, textfont={"color": c["ink_2"], "size": 12},
+                           hovertemplate="%{y}: %{x:.2f}<extra></extra>"))
+    fig.update_xaxes(title_text="Sharpe ratio units", range=[0, max(vals) * 1.2])
+    fig.update_yaxes(showgrid=False)
+    return theme.style(fig, c, height=340, legend=False)
+
+
+def equity_chart(curves: pd.DataFrame, variants: list[str], seeds: list[int], benchmarks: list[str], c: dict[str, Any],
+                 span: tuple[str, str] | None = None) -> go.Figure:
+    """Growth of 1: for each chosen variant the band between its lowest and highest seed and the median seed; benchmarks as lines."""
+    fig = go.Figure()
+    for b in benchmarks:
+        fig.add_trace(go.Scatter(x=curves.index, y=curves[f"BM|{b}"], mode="lines", name=strategy_label(b), line={"color": c["context"], "width": 1.5},
+                                 hovertemplate=f"{strategy_label(b)} %{{y:.2f}}<extra></extra>"))
+    for v in variants:
+        block = curves[[f"{v}|s{s}" for s in seeds]]
+        lo, hi, mid = block.min(axis=1), block.max(axis=1), block.median(axis=1)
+        color = c["variants"][v]
+        rgba = f"rgba({int(color[1:3], 16)},{int(color[3:5], 16)},{int(color[5:7], 16)},0.16)"
+        fig.add_trace(go.Scatter(x=curves.index, y=hi, mode="lines", line={"width": 0}, showlegend=False, hoverinfo="skip", legendgroup=v))
+        fig.add_trace(go.Scatter(x=curves.index, y=lo, mode="lines", line={"width": 0}, fill="tonexty", fillcolor=rgba, showlegend=False,
+                                 hoverinfo="skip", legendgroup=v))
+        fig.add_trace(go.Scatter(x=curves.index, y=mid, mode="lines", name=f"{v}: median seed, band = all seeds", legendgroup=v,
+                                 line={"color": color, "width": 2, "dash": theme.VARIANT_DASH[v]},
+                                 customdata=np.stack([lo, hi], axis=1),
+                                 hovertemplate=f"{v} median %{{y:.2f}} (seeds %{{customdata[0]:.2f}} to %{{customdata[1]:.2f}})<extra></extra>"))
+    if span is not None:
+        fig.update_xaxes(range=list(span))
+        window = curves.loc[span[0]: span[1]]
+        if len(window):
+            fig.update_yaxes(range=[float(window.min().min()) * 0.97, float(window.max().max()) * 1.03])
+    fig.update_yaxes(title_text="growth of 1, after costs")
+    fig.update_xaxes(showgrid=False)
+    fig = theme.style(fig, c, height=420)
+    return fig.update_layout(hovermode="x unified")
+
+
+def cost_rank(values: pd.Series, c: dict[str, Any]) -> go.Figure:
+    """Strategies sorted by net Sharpe at one cost level: variants in colour (mean of seeds), benchmarks in grey."""
+    v = values.sort_values()
+    cols = [c["variants"].get(k, c["context"]) for k in v.index]
+    fig = go.Figure(go.Bar(y=[strategy_label(k) for k in v.index], x=v.to_numpy(), orientation="h", width=0.55,
+                           marker={"color": cols, "line": {"width": 0}}, text=[f"{x:.2f}" for x in v], textposition="outside",
+                           cliponaxis=False, textfont={"color": c["ink_2"], "size": 12}, hovertemplate="%{y}: %{x:.2f}<extra></extra>"))
+    fig.update_xaxes(title_text="net Sharpe ratio", zeroline=True)
+    fig.update_yaxes(showgrid=False)
+    fig.update_layout(transition={"duration": 300})
+    return theme.style(fig, c, height=360, legend=False)

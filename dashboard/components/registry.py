@@ -48,6 +48,12 @@ PAGES: tuple[PageInfo, ...] = (
         "benchmarks), and trading costs take a large part of its return.",
     ),
     PageInfo(
+        "allocation", "views/09_allocation.py", "Allocation through time", ":material/stacked_line_chart:",
+        "What the frozen agents held, week by week. It describes their behaviour; it is not evidence of skill, and these "
+        "allocations did not beat the simple benchmarks after costs.",
+        shows_weights=True,
+    ),
+    PageInfo(
         "results", "views/10_results.py", "Results", ":material/fact_check:",
         "{passed_test} of 3 pre-registered comparisons passed on the test split and {passed_holdout} of 3 on the holdout. "
         "The gaps between variants are smaller than the gaps between random seeds.",
