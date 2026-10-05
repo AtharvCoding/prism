@@ -18,6 +18,9 @@ and data/live):
                     daily series must equal data/processed/tier2/eval_daily.parquet to 1e-9
     folds-test      the walk-forward re-run to the test split's end (about 6 minutes) for the per-fold HMM parameters;
                     must reproduce the stored states to 1e-9. Also rehearses persisting and verifying the live models
+    live-check      the live path's functions against stored results, on the test split: the frozen (rehearsal) models
+                    re-derive the stored state rows of their last month; the continued-episode rollout reproduces the
+                    recorded weekly weights and the final decision's observation for all 40 agents
     holdout-replay  GATED. The same two things on the HOLDOUT window, plus the frozen last-fold models for the live view.
                     Needs --i-am-sure and PRISM_ALLOW_HOLDOUT=1, the committed Amendment 1, and is logged in
                     reports/logs/holdout_access.jsonl. It computes no statistic and writes nothing to data/processed.
@@ -46,7 +49,7 @@ from prism.config import load_config  # noqa: E402
 from prism.utils.hashing import sha256_file  # noqa: E402
 from prism.utils.logging import configure_logging  # noqa: E402
 
-UNGATED = ("stored", "derived", "replay-test", "folds-test")
+UNGATED = ("stored", "derived", "replay-test", "folds-test", "live-check")
 REASON = ("dashboard: descriptive replay of the frozen agents to record weekly weights and persist the last-fold models; "
           "no statistic is computed (preregistration_holdout.md Amendment 1)")
 
@@ -68,6 +71,8 @@ def _write_weights(out: Path, window: str, res: dict) -> dict:
         files[rel] = {"kind": "replay", "sha256": dd.write_frame(res[name], out / rel)}
     rel = f"weights/{window}_check.json"
     files[rel] = {"kind": "check", "sha256": dd._write_json(out / rel, res["check"])}
+    rel = f"weights/{window}_last_observations.json"          # what each agent saw at its final recorded decision (the what-if lab's input)
+    files[rel] = {"kind": "replay", "sha256": dd._write_json(out / rel, res["last_observations"])}
     return files
 
 
@@ -142,6 +147,72 @@ def stage_folds_test(cfg, out: Path, log) -> None:  # noqa: ANN001
     dd.write_manifest(out, files, sha256_file(ROOT / dd.BASELINE))
     log.info("folds-test: %d HMM folds; the re-run walk-forward reproduces the stored states: %s", len(table),
              {v: f"{c['max_abs_diff']:.1e}" for v, c in check["variants"].items()})
+
+
+def stage_live_check(cfg, out: Path, log) -> None:  # noqa: ANN001
+    """Verify prism.live on real, already-exposed data. Reads nothing after the test split's end."""
+    import numpy as np
+
+    from prism import dashboard_replay as dr
+    from prism import live
+    from prism.agents import tier2 as t2
+    from prism.agents.data import load_close
+    from prism.agents.jobs import job_dir
+    from prism.agents.sac import greedy_policy, load_agent
+    from prism.data.loaders import assert_not_holdout, load_snapshot
+    from prism.features.build import make_raw_frame
+    from prism.splits import build_split_plan
+
+    dr.verify_agents(ROOT)
+    split = build_split_plan(cfg)["test"]
+    snap = load_snapshot(cfg)
+    raw = make_raw_frame(snap.close, snap.volume, snap.macro).loc[: split.declared_end]
+    assert_not_holdout(cfg, raw.index, context="dashboard live-check")
+    stored = dr.stored_states(ROOT, "test")
+    models = live.load_models(ROOT / (live.MODELS_DIR + "_rehearsal"))
+    fresh = live.live_states(cfg, raw, models, {v: [str(c) for c in f.columns] for v, f in stored.items()},
+                             start=pd.Timestamp(models.hmm["apply_start"]))
+    states_diff = {v: float(np.abs(f.to_numpy() - stored[v].loc[f.index].to_numpy()).max()) for v, f in fresh.items()}
+    rows = {v: int(len(f)) for v, f in fresh.items()}
+    if max(states_diff.values()) > dr.REPLAY_ATOL or min(rows.values()) == 0:
+        raise dr.ReplayError(f"live_states does not reproduce the stored states: {states_diff}")
+
+    plan = t2.Tier2Plan.from_config(cfg, ROOT)
+    frozen = t2.load_frozen(plan)
+    close = load_close(cfg, "test")
+    recorded = pd.read_parquet(out / "weights" / "test_agents.parquet")
+    last_obs = json.loads((out / "weights" / "test_last_observations.json").read_text())
+    last_decision = pd.Timestamp(last_obs["decision_date"])
+    worst = {"weights": 0.0, "pre_trade": 0.0, "turnover": 0.0, "observation": 0.0, "what_if_identity": 0.0}
+    for v in plan.variants:
+        cols = last_obs["columns"][v]
+        for s in plan.final_seeds:
+            policy = greedy_policy(load_agent(job_dir(plan.runs, "final", v, frozen[v].cfg_id, s) / "best.zip"))
+            want = recorded[(recorded.variant == v) & (recorded.seed == s)].reset_index(drop=True)
+            full = live.rollout(cfg, stored[v], close, policy, start=split.effective_start, end=split.effective_end)
+            got = full["decisions"]
+            if not (got.decision_date.to_numpy() == want.decision_date.to_numpy()).all():
+                raise dr.ReplayError(f"{v} seed {s}: the live rollout's decision dates differ from the recorded ones")
+            for key, prefix in (("weights", "w_"), ("pre_trade", "p_")):
+                c = [x for x in want.columns if x.startswith(prefix)]
+                worst[key] = max(worst[key], float(np.abs(got[c].to_numpy() - want[c].to_numpy()).max()))
+            worst["turnover"] = max(worst["turnover"], float(np.abs(got.turnover.to_numpy() - want.turnover.to_numpy()).max()))
+            # ending the episode at the final decision's close: the terminal observation is that decision's observation
+            at_decision = live.rollout(cfg, stored[v], close, policy, start=split.effective_start, end=last_decision)["latest"]
+            seen = np.asarray(last_obs["observations"][f"{v}|s{s}"], dtype="float32")
+            worst["observation"] = max(worst["observation"], float(np.abs(at_decision["observation"] - seen).max()))
+            target = want[want.decision_date == last_decision][[x for x in want.columns if x.startswith("w_")]].to_numpy()[0]
+            worst["weights"] = max(worst["weights"], float(np.abs(at_decision["weights"].to_numpy() - target).max()))
+            same = live.what_if_weights(cfg, policy, seen, cols, None)
+            worst["what_if_identity"] = max(worst["what_if_identity"], float(np.abs(same - target).max()))
+    if max(worst.values()) > dr.REPLAY_ATOL:
+        raise dr.ReplayError(f"the live rollout does not reproduce the recorded replay: {worst}")
+    check = {"window": "test", "atol": dr.REPLAY_ATOL, "live_states": {"start": models.hmm["apply_start"], "rows": rows, "max_abs_diff": states_diff},
+             "rollout": {"agents": len(plan.variants) * len(plan.final_seeds), "decisions": int(recorded.decision_date.nunique()),
+                         "max_abs_diff": worst}, "ok": True}
+    files = {"live/live_check.json": {"kind": "check", "sha256": dd._write_json(out / "live" / "live_check.json", check)}}
+    dd.write_manifest(out, files, sha256_file(ROOT / dd.BASELINE))
+    log.info("live-check: live_states reproduce the stored states %s; rollout reproduces the recorded weights %s", states_diff, worst)
 
 
 def stage_holdout_replay(cfg, out: Path, log, *, sure: bool) -> None:  # noqa: ANN001
@@ -240,6 +311,8 @@ def main(argv: list[str] | None = None) -> int:
             stage_replay_test(cfg, out, log)
         elif stage == "folds-test":
             stage_folds_test(cfg, out, log)
+        elif stage == "live-check":
+            stage_live_check(cfg, out, log)
     manifest = dd.verify_artifacts(out)
     log.info("dashboard/artifacts: %d files, manifest %s", len(manifest["files"]), manifest["hash"][:12])
     return 0

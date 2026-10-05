@@ -1,0 +1,31 @@
+{
+ "atol": 1e-09,
+ "live_states": {
+  "max_abs_diff": {
+   "C4": 0.0,
+   "V1": 0.0,
+   "V2": 0.0,
+   "V4": 1.135924687645229e-12
+  },
+  "rows": {
+   "C4": 20,
+   "V1": 20,
+   "V2": 20,
+   "V4": 20
+  },
+  "start": "2023-12-01"
+ },
+ "ok": true,
+ "rollout": {
+  "agents": 40,
+  "decisions": 255,
+  "max_abs_diff": {
+   "observation": 0.0,
+   "pre_trade": 0.0,
+   "turnover": 0.0,
+   "weights": 0.0,
+   "what_if_identity": 0.0
+  }
+ },
+ "window": "test"
+}

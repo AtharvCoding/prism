@@ -274,3 +274,165 @@ def test_threshold_states_are_a_lookup_on_fixed_edges():
     params = {"edges": [20.0], "k": 2}
     out = live.threshold_states(params, pd.Series([12.0, 20.0, 35.0], index=pd.bdate_range("2026-10-01", periods=3)))
     assert out.to_numpy().tolist() == [[1.0, 0.0], [0.0, 1.0], [0.0, 1.0]] and list(out.columns) == ["state_0", "state_1"]
+
+
+# --------------------------------------------------------------------------- the live path (DASHBOARD.md §4): sessions and the splice
+def test_a_session_counts_only_after_its_close():
+    days = pd.bdate_range("2026-10-05", periods=3)                       # Mon, Tue, Wed
+    during = pd.Timestamp("2026-10-07 15:00", tz="America/New_York")     # Wednesday, market open
+    after = pd.Timestamp("2026-10-07 16:45", tz="America/New_York")
+    assert list(live.completed_sessions(days, during)) == list(days[:2])
+    assert list(live.completed_sessions(days, after)) == list(days)
+    assert list(live.completed_sessions(days, pd.Timestamp("2026-10-07 16:10", tz="America/New_York"))) == list(days[:2])   # inside the buffer
+    weekend = pd.DatetimeIndex(["2026-10-09", "2026-10-10", "2026-10-11"])
+    assert list(live.completed_sessions(weekend, pd.Timestamp("2026-10-12 12:00", tz="UTC"))) == [pd.Timestamp("2026-10-09")]
+
+
+def _panels(n: int = 90, new: int = 4):
+    rng = np.random.default_rng(3)
+    days = pd.bdate_range("2026-06-01", periods=n + new)
+    etf = pd.Series(100 * np.cumprod(1 + rng.normal(0, 0.01, n + new)), index=days)
+    vix = pd.Series(18 + rng.normal(0, 1, n + new).cumsum() * 0.1, index=days)
+    close = pd.DataFrame({"XLK": etf, "^VIX": vix})
+    volume = pd.DataFrame({"XLK": rng.integers(1_000_000, 2_000_000, n + new).astype(float)}, index=days)
+    return close.iloc[:n], volume.iloc[:n], close, volume
+
+
+def test_the_splice_rescales_restated_prices_and_leaves_levels_alone():
+    frozen_c, frozen_v, fresh_c, fresh_v = _panels()
+    restated = fresh_c.assign(XLK=fresh_c.XLK * 0.991)                    # a dividend was paid since the snapshot
+    close, volume, report = live.splice(frozen_c, frozen_v, restated, fresh_v)
+    assert report["ok"] and report["new_sessions"] == 4 and report["anchor"] == str(frozen_c.index[-1].date())
+    assert close.iloc[:90].equals(frozen_c)                               # the frozen rows are untouched
+    assert report["tickers"]["XLK"]["scale"] == pytest.approx(1 / 0.991) and report["tickers"]["^VIX"]["scale"] == 1.0
+    assert np.allclose(close.XLK.pct_change().iloc[-4:], fresh_c.XLK.pct_change().iloc[-4:])      # returns are continuous at the seam
+    assert close["^VIX"].iloc[-4:].equals(fresh_c["^VIX"].iloc[-4:])
+    assert volume.iloc[-4:].equals(fresh_v.iloc[-4:])
+
+
+def test_the_splice_refuses_data_that_disagrees_with_the_snapshot():
+    frozen_c, frozen_v, fresh_c, fresh_v = _panels()
+    bad = fresh_c.copy()
+    bad.loc[bad.index[70], "XLK"] *= 1.01                                 # one overlapping return off by 1%
+    with pytest.raises(live.SeamError, match="data seam check failed for XLK"):
+        live.splice(frozen_c, frozen_v, bad, fresh_v)
+    shifted = fresh_c.assign(**{"^VIX": fresh_c["^VIX"] + 0.5})           # a level series must agree in level, not be rescaled
+    with pytest.raises(live.SeamError, match=r"\^VIX"):
+        live.splice(frozen_c, frozen_v, shifted, fresh_v)
+    with pytest.raises(live.SeamError, match="overlap"):
+        live.splice(frozen_c, frozen_v, fresh_c.iloc[-10:], fresh_v.iloc[-10:])
+    with pytest.raises(live.SeamError, match="lacks"):
+        live.splice(frozen_c, frozen_v, fresh_c[["XLK"]], fresh_v)
+
+
+def test_a_split_rescales_price_and_volume_together():
+    frozen_c, frozen_v, fresh_c, fresh_v = _panels()
+    split_c, split_v = fresh_c.assign(XLK=fresh_c.XLK / 2), fresh_v * 2    # a 2-for-1 split restates the whole history
+    close, volume, report = live.splice(frozen_c, frozen_v, split_c, split_v)
+    assert report["tickers"]["XLK"]["scale"] == pytest.approx(2.0)
+    assert np.allclose(close.XLK.iloc[-4:], fresh_c.XLK.iloc[-4:]) and np.allclose(volume.XLK.iloc[-4:], fresh_v.XLK.iloc[-4:])
+
+
+def test_level_series_are_recognised_by_ticker(cfg):
+    macro = [*cfg.data.universes["A"].macro, *cfg.data.universes["B"].macro_extra]
+    assert {t for t in macro if live.is_level_series(t)} == {"^VIX", "^TNX", "^FVX", "^IRX", "^VIX3M", "DX-Y.NYB", "CL=F"}
+    assert not any(live.is_level_series(t) for t in cfg.data.allocatable["B"])
+
+
+# --------------------------------------------------------------------------- the live path: decisions, previews, the rollout
+def test_a_decision_needs_a_finished_week():
+    from prism.utils.calendar import trading_days
+
+    sessions = trading_days("2026-09-21", "2026-10-09")
+    assert live.decision_calendar(sessions) == (pd.Timestamp("2026-10-09"), True)                 # ends on a Friday
+    assert live.decision_calendar(sessions[:-2]) == (pd.Timestamp("2026-10-02"), False)           # ends on a Wednesday: a preview
+    assert live.decision_calendar(sessions[:-5]) == (pd.Timestamp("2026-10-02"), True)
+    good_friday = trading_days("2026-03-23", "2026-04-02")                                        # Friday 3 April 2026 is a holiday
+    assert live.decision_calendar(good_friday) == (pd.Timestamp("2026-04-02"), True)
+
+
+@pytest.fixture(scope="module")
+def toy(cfg):
+    """A random-walk price panel and a 3-column state, enough to run the real environment."""
+    from prism.utils.calendar import trading_days
+
+    rng = np.random.default_rng(11)
+    days = trading_days("2026-01-02", "2026-10-09")
+    risky = list(cfg.data.allocatable["B"])
+    close = pd.DataFrame(100 * np.cumprod(1 + rng.normal(0, 0.01, (len(days), len(risky))), axis=0), index=days, columns=risky)
+    close["^IRX"] = 4.0
+    states = pd.DataFrame(rng.normal(size=(len(days), 3)), index=days, columns=["x0", "x1", "x2"]).iloc[30:]
+    policy = lambda obs: np.tanh(obs[:14] * 0.7 + obs[3:17])  # noqa: E731 - depends on the state AND on the agent's own weights
+    return SimpleNamespace(close=close, states=states, policy=policy, start=states.index[0])
+
+
+def test_the_weights_chosen_at_a_decision_do_not_change_when_more_data_arrives(toy, cfg):
+    """The terminal observation of an episode ended at a decision close is that decision's observation in any longer episode."""
+    friday = pd.Timestamp("2026-09-25")
+    short = live.rollout(cfg, toy.states, toy.close, toy.policy, start=toy.start, end=friday)
+    long = live.rollout(cfg, toy.states, toy.close, toy.policy, start=toy.start, end=toy.states.index[-1])
+    row = long["decisions"].set_index("decision_date").loc[friday]
+    assert np.allclose(short["latest"]["weights"].to_numpy(), row[[c for c in row.index if c.startswith("w_")]].to_numpy(float), atol=1e-12)
+    assert np.allclose(short["latest"]["held"].sum(), 1.0) and short["latest"]["date"] == friday
+    common = short["decisions"].set_index("decision_date").index
+    cols = [c for c in short["decisions"].columns if c.startswith("w_")]
+    assert np.allclose(short["decisions"].set_index("decision_date")[cols], long["decisions"].set_index("decision_date").loc[common, cols], atol=1e-12)
+
+
+def test_the_rollout_does_not_read_past_its_end(toy, cfg):
+    friday = pd.Timestamp("2026-09-25")
+    a = live.rollout(cfg, toy.states, toy.close, toy.policy, start=toy.start, end=friday)
+    close, states = toy.close.copy(), toy.states.copy()
+    close.loc[close.index > friday] *= 3.0
+    states.loc[states.index > friday] = 99.0
+    b = live.rollout(cfg, states, close, toy.policy, start=toy.start, end=friday)
+    assert a["latest"]["weights"].equals(b["latest"]["weights"]) and a["decisions"].equals(b["decisions"])
+
+
+def test_mid_week_gives_the_last_decision_and_a_separate_preview(toy, cfg):
+    policies = {("V1", 0): toy.policy, ("V1", 1): lambda obs: -toy.policy(obs)}
+    wednesday = pd.Timestamp("2026-10-07")
+    out = live.latest_weights(cfg, {"V1": toy.states.loc[:wednesday]}, toy.close.loc[:wednesday], policies, start=toy.start)
+    assert (out["decision_date"], out["as_of"], out["is_preview"]) == (pd.Timestamp("2026-10-02"), wednesday, True)
+    assert out["preview"] is not None and not np.allclose(out["preview"].filter(like="w_"), out["decision"].filter(like="w_"))
+    full = live.latest_weights(cfg, {"V1": toy.states}, toy.close, policies, start=toy.start)
+    assert full["is_preview"] is False and full["preview"] is None and full["decision_date"] == full["as_of"] == toy.states.index[-1]
+    ens = live.ensemble(full["decision"])
+    assert np.allclose(ens["mean"].sum(), 1.0) and (ens["min"] <= ens["mean"]).all() and (ens["spread"] == ens["max"] - ens["min"]).all()
+
+
+# --------------------------------------------------------------------------- what-if
+def test_what_if_changes_only_the_two_regime_inputs_and_is_flat_without_them(cfg):
+    lines = [f"weight_{t}" for t in [*cfg.data.allocatable["B"], "CASH"]]
+    with_regime = ["f0", "f1", "state_0", "state_1", *lines, "mean_turnover"]
+    without = ["f0", "f1", *lines, "mean_turnover"]
+    seen = []
+
+    def policy(obs):
+        seen.append(obs.copy())
+        return np.tanh(np.resize(obs, 14))
+
+    obs = np.linspace(-1, 1, len(with_regime)).astype("float32")
+    base = live.what_if_weights(cfg, policy, obs, with_regime, None)
+    assert np.array_equal(seen[-1], obs)
+    moved = live.what_if_weights(cfg, policy, obs, with_regime, 0.8)
+    assert seen[-1][2] == np.float32(0.2) and seen[-1][3] == np.float32(0.8)
+    changed = np.flatnonzero(seen[-1] != obs)
+    assert set(changed) <= set(live.regime_positions(with_regime)) and not np.allclose(base, moved)
+    assert np.allclose(moved.sum(), 1.0) and moved[:-1].max() <= cfg.data.allocation.weight_max + 1e-12
+    flat = [live.what_if_weights(cfg, policy, obs[: len(without)], without, p) for p in (None, 0.0, 0.5, 1.0)]
+    assert all(np.array_equal(flat[0], f) for f in flat)                   # V1 and V2: the slider changes nothing, by construction
+    with pytest.raises(ValueError):
+        live.what_if_weights(cfg, policy, obs, with_regime, 1.2)
+    with pytest.raises(ValueError):
+        live.regime_positions(without)
+
+
+def test_the_live_path_was_verified_against_the_recorded_test_window():
+    check = json.loads((ARTIFACTS / "live" / "live_check.json").read_text())
+    assert check["ok"] and check["rollout"]["agents"] == 40 and check["rollout"]["decisions"] == 255
+    assert max(check["rollout"]["max_abs_diff"].values()) <= dr.REPLAY_ATOL
+    assert max(check["live_states"]["max_abs_diff"].values()) <= dr.REPLAY_ATOL and min(check["live_states"]["rows"].values()) > 0
+    seen = json.loads((ARTIFACTS / "weights" / "test_last_observations.json").read_text())
+    assert len(seen["observations"]) == 40 and {v: len(c) for v, c in seen["columns"].items()} == {"V1": 199, "V2": 231, "V4": 233, "C4": 233}
+    assert seen["columns"]["V4"][216:218] == ["state_0", "state_1"] == seen["columns"]["C4"][216:218]

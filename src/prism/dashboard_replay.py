@@ -102,6 +102,8 @@ def replay_window(cfg, plan, split: str, close: pd.DataFrame, states: dict[str, 
     frozen, split_plan, base = t2.load_frozen(plan), build_split_plan(cfg), CostModel.from_config(cfg)
     worst: dict[str, float] = {}
     agent_rows, bench_rows = [], []
+    last_obs: dict[str, list[float]] = {}
+    obs_columns: dict[str, list[str]] = {}
     for v in plan.variants:
         data = variant_env_data(cfg, v, close, split, plan=split_plan, state=None if states is None else states[v],
                                 final_holdout=final_holdout)
@@ -112,9 +114,11 @@ def replay_window(cfg, plan, split: str, close: pd.DataFrame, states: dict[str, 
             for bps in t2.COST_LEVELS:
                 env = make_env(cfg, data, mode="eval", cost_model=base.scaled(bps))
                 pre_trade: list[np.ndarray] = []
+                seen: list[np.ndarray] = []
 
-                def recording(obs: np.ndarray, env=env, pre_trade=pre_trade) -> np.ndarray:
+                def recording(obs: np.ndarray, env=env, pre_trade=pre_trade, seen=seen) -> np.ndarray:
                     pre_trade.append(env.drifted_weights)       # what the trade at the execution close starts from
+                    seen[:] = [obs.copy()]                      # keep only the latest: the final decision's observation
                     return policy(obs)
 
                 res = run_policy(env, recording)
@@ -133,6 +137,8 @@ def replay_window(cfg, plan, split: str, close: pd.DataFrame, states: dict[str, 
                 frame.insert(0, "variant", v)
                 agent_rows.append(frame.rename_axis("decision_date").reset_index())
                 key = f"{v}|s{s}"
+                last_obs[key] = [float(x) for x in seen[0]]
+                obs_columns[v] = [*data.state_columns, *(f"weight_{c}" for c in data.lines), "mean_turnover"]
                 want = pd.Series(stored_meta["weights"][key])
                 if float(np.abs(w.mean().round(6)[want.index] - want).max()) > 1e-6 + 1e-12:
                     raise ReplayError(f"{key}: mean weights differ from those the stored evaluation recorded")
@@ -166,7 +172,8 @@ def replay_window(cfg, plan, split: str, close: pd.DataFrame, states: dict[str, 
         "last_decision": str(agents.decision_date.max().date()), "agents": int(agents.groupby(["variant", "seed"]).ngroups),
         "ok": True,
     }
-    return {"agents": agents, "benchmarks": pd.concat(bench_rows, ignore_index=True), "check": check}
+    observations = {"decision_date": check["last_decision"], "columns": obs_columns, "observations": last_obs}
+    return {"agents": agents, "benchmarks": pd.concat(bench_rows, ignore_index=True), "check": check, "last_observations": observations}
 
 
 # --------------------------------------------------------------------------- #

@@ -9,8 +9,11 @@ Each function is checked against the stored states on the fold's own apply windo
 1e-9; DECISIONS.md D-044 item 1), which is the only window one frozen fold can reproduce: earlier dates were
 produced by earlier folds' models.
 
-This file holds the model half of the live path. Fetching fresh prices, the splice and the agents' rollout are
-milestone D5.
+The second half of the file is the path from fresh prices to weights: which sessions are complete
+(:func:`completed_sessions`), the splice onto the frozen snapshot (:func:`splice`), the new state rows
+(:func:`live_states`), and the agents' deterministic episode continued to the present (:func:`rollout`,
+:func:`latest_weights`). No function here looks past the session it is computing for; the tests perturb the future
+and check nothing earlier moves.
 """
 
 from __future__ import annotations
@@ -27,7 +30,9 @@ from prism.utils.hashing import sha256_file
 
 __all__ = [
     "MODELS_DIR", "LiveModels", "save_models", "load_models", "hmm_model", "filter_hmm", "encoder_model", "encode",
-    "threshold_states", "scale_features", "verify_models", "LiveModelError",
+    "threshold_states", "scale_features", "verify_models", "LiveModelError", "SeamError", "is_level_series",
+    "completed_sessions", "fetch_recent", "splice", "live_states", "decision_calendar", "rollout", "latest_weights", "ensemble",
+    "regime_positions", "what_if_weights",
 ]
 
 MODELS_DIR = "data/live/models"
@@ -282,3 +287,265 @@ def verify_models(models: LiveModels, features_a: pd.DataFrame, features_b: pd.D
     if not out["ok"]:
         raise LiveModelError(f"the persisted models do not reproduce the stored states: {json.dumps(out)}")
     return out
+
+
+# --------------------------------------------------------------------------- #
+# fresh data: complete sessions, and the splice onto the frozen snapshot
+# --------------------------------------------------------------------------- #
+class SeamError(RuntimeError):
+    """Fresh data does not join the frozen snapshot cleanly; nothing may be computed from it."""
+
+
+def is_level_series(ticker: str) -> bool:
+    """Index levels, yields and futures prices are not dividend-adjusted, so they are never rescaled at the splice."""
+    return ticker.startswith("^") or "=" in ticker or "." in ticker
+
+
+def completed_sessions(index: pd.DatetimeIndex, now: pd.Timestamp, *, exchange: str = "NYSE", buffer_minutes: int = 30) -> pd.DatetimeIndex:
+    """The dates in ``index`` that are exchange sessions whose close is at least ``buffer_minutes`` before ``now``.
+
+    A download taken during market hours carries a partial bar for the current session. It is not a close, and a
+    state computed from it would use a price nobody could have traded at; it is dropped here.
+    """
+    import pandas_market_calendars as mcal
+
+    idx = pd.DatetimeIndex(index).normalize()
+    if len(idx) == 0:
+        return idx
+    now = pd.Timestamp(now)
+    now = now.tz_localize("UTC") if now.tzinfo is None else now.tz_convert("UTC")
+    schedule = mcal.get_calendar(exchange).schedule(start_date=idx.min(), end_date=idx.max())
+    done = schedule.index[schedule["market_close"] + pd.Timedelta(minutes=buffer_minutes) <= now]
+    return idx[idx.isin(pd.DatetimeIndex(done).normalize())]
+
+
+def fetch_recent(tickers: list[str], start: pd.Timestamp, end: pd.Timestamp) -> dict[str, pd.DataFrame]:
+    """Daily bars from the vendor (``auto_adjust=True``), through the project's one network function."""
+    from prism.data.download import download_panel
+
+    return download_panel(list(tickers), start, end)
+
+
+def splice(frozen_close: pd.DataFrame, frozen_volume: pd.DataFrame, fresh_close: pd.DataFrame, fresh_volume: pd.DataFrame, *,
+           overlap: int = 60, tol: float = 1e-3) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:
+    """Append the genuinely new sessions of ``fresh`` to the frozen panel, after checking the two agree where they overlap.
+
+    Adjusted prices are restated when a dividend is paid, so a fresh download sits at a slightly different level
+    from the snapshot. Returns are what matter: over the last ``overlap`` common sessions the daily returns must
+    agree to ``tol``, and the new rows are rescaled so the series is continuous at the last common close. Level
+    series (:func:`is_level_series`) must agree in level and are appended unscaled. Volume is rescaled by the
+    median overlap ratio, which is 1 unless a split occurred. Raises :class:`SeamError` otherwise.
+    """
+    missing = [t for t in frozen_close.columns if t not in fresh_close.columns]
+    if missing:
+        raise SeamError(f"the fresh download lacks {missing}")
+    common = frozen_close.index.intersection(fresh_close.index)
+    new_index = fresh_close.index[fresh_close.index > frozen_close.index[-1]]
+    if len(common) < min(overlap, 20):
+        raise SeamError(f"only {len(common)} sessions overlap the frozen snapshot; need at least {min(overlap, 20)}")
+    window = common[-overlap:]
+    report: dict[str, Any] = {"anchor": str(window[-1].date()), "overlap_sessions": int(len(window)), "new_sessions": int(len(new_index)),
+                              "tol": tol, "tickers": {}}
+    new_close = pd.DataFrame(index=new_index, columns=frozen_close.columns, dtype="float64")
+    for t in frozen_close.columns:
+        pair = pd.concat([frozen_close[t].reindex(window), fresh_close[t].reindex(window)], axis=1, keys=["frozen", "fresh"]).dropna()
+        if len(pair) < 5:
+            raise SeamError(f"{t}: fewer than 5 overlapping observations")
+        if is_level_series(t):
+            diff = float((np.abs(pair.fresh - pair.frozen) / np.maximum(np.abs(pair.frozen), 1.0)).max())
+            scale = 1.0
+        else:
+            diff = float(np.abs(pair.fresh.pct_change() - pair.frozen.pct_change()).max())
+            scale = float(pair.frozen.iloc[-1] / pair.fresh.iloc[-1])
+        report["tickers"][t] = {"scale": scale, "max_diff": diff, "level": is_level_series(t)}
+        if not diff <= tol:
+            report["ok"] = False
+            raise SeamError(f"data seam check failed for {t}: the fresh download differs from the frozen snapshot by {diff:.2e} "
+                            f"over the last {len(pair)} common sessions (tolerance {tol:g})")
+        new_close[t] = fresh_close[t].reindex(new_index) * scale
+    new_volume = pd.DataFrame(index=new_index, columns=frozen_volume.columns, dtype="float64")
+    for t in frozen_volume.columns:
+        pair = pd.concat([frozen_volume[t].reindex(window), fresh_volume[t].reindex(window)], axis=1, keys=["frozen", "fresh"]).dropna()
+        pair = pair[(pair.frozen > 0) & (pair.fresh > 0)]
+        ratio = float((pair.frozen / pair.fresh).median()) if len(pair) else 1.0
+        new_volume[t] = fresh_volume[t].reindex(new_index) * ratio
+    report["ok"] = True
+    return pd.concat([frozen_close, new_close]), pd.concat([frozen_volume, new_volume]), report
+
+
+# --------------------------------------------------------------------------- #
+# new state rows from the frozen models
+# --------------------------------------------------------------------------- #
+def live_states(cfg, raw: pd.DataFrame, models: LiveModels, reference_columns: dict[str, list[str]], *,  # noqa: ANN001
+                start: pd.Timestamp | None = None) -> dict[str, pd.DataFrame]:
+    """State rows of V1, V2, V4 and C4 from ``start`` to the end of ``raw``, produced by the frozen last-fold models.
+
+    ``start=None`` means "after the models' last day": the HMM filter continues from its carried state. An earlier
+    ``start`` (not before the HMM fold's apply window) re-derives rows that are already stored, which is how the
+    function is verified. ``reference_columns`` are the stored state files' column lists; the result must match
+    them exactly.
+    """
+    from prism.features.build import build_features
+    from prism.holdout import _load_set, _prune
+
+    end = raw.index[-1]
+    features = {}
+    for universe in ("A", "B"):
+        fs = build_features(raw, cfg, universe)
+        features[universe] = _load_set(cfg, universe, _prune(cfg, fs, universe, end), fs).frame
+    h = models.hmm
+    carry_date = pd.Timestamp(h["carry_date"])
+    obs = features["A"][h["observations"]].dropna()
+    if start is None or pd.Timestamp(start) > carry_date:
+        start = carry_date + pd.Timedelta(days=1) if start is None else pd.Timestamp(start)
+        new = obs.loc[obs.index > carry_date]
+        posteriors = filter_hmm(h, new, initial_log_alpha=np.asarray(h["carry_log_alpha"]))[0] if len(new) else pd.DataFrame(columns=list(REGIME_COLUMNS))
+    else:
+        start = pd.Timestamp(start)
+        if start < pd.Timestamp(h["apply_start"]):
+            raise ValueError("the frozen HMM fold cannot reproduce dates before its own apply window")
+        history = pd.concat([obs.loc[pd.Timestamp(h["fit_start"]): pd.Timestamp(h["fit_end"])], obs.loc[pd.Timestamp(h["apply_start"]):]])
+        posteriors = filter_hmm(h, history)[0]
+    latents = encode(models, features["A"])
+    threshold = threshold_states(models.threshold, features["A"][models.threshold["column"]])
+    base = scale_features(models, features["B"])
+    index = base.index[base.index >= start].intersection(latents.index).intersection(posteriors.index).intersection(threshold.index)
+    blocks = {"V1": [base], "V2": [base, latents], "V4": [base, latents, posteriors], "C4": [base, latents, threshold]}
+    out = {}
+    for variant, parts in blocks.items():
+        frame = pd.concat([part.loc[index] for part in parts], axis=1)
+        if [str(c) for c in frame.columns] != list(reference_columns[variant]):
+            raise LiveModelError(f"{variant}: the live state columns differ from the stored state file's")
+        if not np.isfinite(frame.to_numpy(dtype="float64")).all():
+            raise LiveModelError(f"{variant}: the live state contains NaN or inf")
+        out[variant] = frame
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# the agents' episode, continued
+# --------------------------------------------------------------------------- #
+def decision_calendar(sessions: pd.DatetimeIndex, *, exchange: str = "NYSE") -> tuple[pd.Timestamp, bool]:
+    """The latest completed weekly decision date in ``sessions``, and whether it is the last session.
+
+    A decision is taken at the last session of a week. The last session of ``sessions`` is one only if the next
+    exchange session falls in a later week; otherwise the latest decision is the previous week's last session
+    and anything computed at the last session is a mid-week *preview*.
+    """
+    from prism.utils.calendar import rebalance_dates, trading_days
+
+    sessions = pd.DatetimeIndex(sessions)
+    last = sessions[-1]
+    upcoming = trading_days(last + pd.Timedelta(days=1), last + pd.Timedelta(days=10), exchange)
+    week = lambda d: tuple(d.isocalendar())[:2]  # noqa: E731
+    if len(upcoming) and week(upcoming[0]) != week(last):
+        return last, True
+    weekly = rebalance_dates(sessions, "weekly", "FRI")
+    earlier = weekly[weekly < last]
+    eligible = earlier[[week(d) != week(last) for d in earlier]]
+    if len(eligible) == 0:
+        raise ValueError("no completed week in the sessions")
+    return eligible[-1], False
+
+
+def rollout(cfg, states: pd.DataFrame, close: pd.DataFrame, policy, *, start: pd.Timestamp, end: pd.Timestamp) -> dict[str, Any]:  # noqa: ANN001
+    """One agent's deterministic episode from cash at ``start`` through ``end``, and what it would choose at ``end``.
+
+    The episode is the environment's own (same arrays, costs, action map) built over the sessions directly, so it
+    continues past the last split. Returns every executed decision (target and pre-trade weights, turnover, cost)
+    and ``latest``: the weights the policy chooses on the terminal observation, i.e. the state at ``end`` with the
+    portfolio drifted to ``end``. When ``end`` is a week's last session that is the weekly decision.
+    """
+    from prism.backtest.engine import TimingConvention
+    from prism.env.actions import action_to_weights, upper_bounds
+    from prism.env.costs import one_way_turnover
+    from prism.env.data import CASH, EnvData, line_returns
+    from prism.env.portfolio_env import make_env
+
+    risky = list(cfg.data.allocatable[cfg.env.universe])
+    lr_full = line_returns(close, risky)
+    vol_full = lr_full[risky].rolling(cfg.env.costs.vol_window).std()
+    sessions = pd.DatetimeIndex(states.index).intersection(close.index).sort_values()
+    sessions = sessions[(sessions >= pd.Timestamp(start)) & (sessions <= pd.Timestamp(end))]
+    if (np.diff(close.index.get_indexer(sessions)) != 1).any():
+        raise ValueError("the state sessions are not consecutive in the price panel")
+    data = EnvData.from_arrays(sessions, states.loc[sessions].to_numpy(), lr_full.reindex(sessions).to_numpy(), vol_full.reindex(sessions).to_numpy(),
+                               lines=(*risky, CASH), state_columns=tuple(str(c) for c in states.columns), convention=TimingConvention.from_config(cfg))
+    env = make_env(cfg, data, mode="eval")
+    obs, _ = env.reset(seed=0)
+    rows = []
+    while True:
+        pre = env.drifted_weights
+        obs, _, terminated, truncated, info = env.step(policy(obs))
+        rows.append({"decision_date": info["decision_date"], "execution_date": info["execution_date"], "turnover": info["turnover"],
+                     "cost": info["cost"], **{f"w_{c}": w for c, w in zip(data.lines, info["weights"])},
+                     **{f"p_{c}": w for c, w in zip(data.lines, pre)}})
+        if terminated or truncated:
+            break
+    held = env.drifted_weights
+    chosen = action_to_weights(policy(obs), upper_bounds(len(risky), cfg.data.allocation.weight_max), cfg.env.action.logit_scale)
+    latest = {"date": sessions[-1], "weights": pd.Series(chosen, index=list(data.lines)), "held": pd.Series(held, index=list(data.lines)),
+              "turnover": float(one_way_turnover(held, chosen)), "observation": np.asarray(obs, dtype="float32")}
+    return {"decisions": pd.DataFrame(rows), "latest": latest, "lines": list(data.lines), "state_columns": list(data.state_columns)}
+
+
+def latest_weights(cfg, states: dict[str, pd.DataFrame], close: pd.DataFrame, policies: dict[tuple[str, int], Any], *,  # noqa: ANN001
+                   start: pd.Timestamp) -> dict[str, Any]:
+    """Every agent's latest weekly decision and, mid-week, its preview as of the latest close.
+
+    Returns ``decision_date``, ``as_of`` (the last session), ``is_preview`` (a preview exists) and two frames,
+    ``decision`` and ``preview`` (``None`` when the last session is itself the decision), one row per agent.
+    """
+    sessions = pd.DatetimeIndex(next(iter(states.values())).index)
+    sessions = sessions[sessions >= pd.Timestamp(start)].intersection(close.index)
+    decision_date, complete = decision_calendar(sessions)
+
+    def at(end: pd.Timestamp) -> tuple[pd.DataFrame, dict[str, list[float]]]:
+        rows, observations = [], {}
+        for (variant, seed), policy in policies.items():
+            res = rollout(cfg, states[variant], close, policy, start=start, end=end)["latest"]
+            rows.append({"variant": variant, "seed": seed, "turnover": res["turnover"], **{f"w_{k}": v for k, v in res["weights"].items()},
+                         **{f"p_{k}": v for k, v in res["held"].items()}})
+            observations[f"{variant}|s{seed}"] = [float(x) for x in res["observation"]]
+        return pd.DataFrame(rows), observations
+
+    decision, observations = at(decision_date)
+    preview = None if complete else at(sessions[-1])[0]
+    return {"decision_date": decision_date, "as_of": sessions[-1], "is_preview": not complete, "decision": decision, "preview": preview,
+            "observations": observations}
+
+
+def ensemble(frame: pd.DataFrame, prefix: str = "w_") -> pd.DataFrame:
+    """Across the seeds of one variant: the mean weight of each holding, the lowest and highest seed, and their gap."""
+    w = frame[[c for c in frame.columns if c.startswith(prefix)]].rename(columns=lambda c: c[len(prefix):])
+    out = pd.DataFrame({"mean": w.mean(), "min": w.min(), "max": w.max()})
+    out["spread"] = out["max"] - out["min"]
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# what-if: the regime inputs of an observation, replaced
+# --------------------------------------------------------------------------- #
+def regime_positions(columns: list[str]) -> tuple[int, int]:
+    """Positions of the two regime inputs (``state_0``, ``state_1``) in an observation's column list."""
+    if "state_0" not in columns or "state_1" not in columns:
+        raise ValueError("this observation has no regime inputs")
+    return columns.index("state_0"), columns.index("state_1")
+
+
+def what_if_weights(cfg, policy, observation: np.ndarray, columns: list[str], p_volatile: float | None) -> np.ndarray:  # noqa: ANN001
+    """The weights a frozen policy chooses when its two regime inputs are set to ``(1 - p, p)`` and nothing else changes.
+
+    ``p_volatile=None`` leaves the observation untouched. A variant with no regime inputs returns the same weights
+    for every ``p`` by construction.
+    """
+    from prism.env.actions import action_to_weights, upper_bounds
+
+    obs = np.array(observation, dtype="float32", copy=True)
+    if p_volatile is not None and "state_1" in columns:
+        if not 0.0 <= p_volatile <= 1.0:
+            raise ValueError("p_volatile must be a probability")
+        i0, i1 = regime_positions(columns)
+        obs[i0], obs[i1] = 1.0 - p_volatile, p_volatile
+    n_lines = sum(c.startswith("weight_") for c in columns)
+    return action_to_weights(policy(obs), upper_bounds(n_lines - 1, cfg.data.allocation.weight_max), cfg.env.action.logit_scale)
