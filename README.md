@@ -54,7 +54,7 @@ results on it are exploratory; the holdout stays reserved for step 5.
 
 **Dashboard (`DASHBOARD.md`; DECISIONS.md D-043 to D-051).** A Streamlit app that explains the project end to end, shows the
 frozen system running, and reports the null result as it came out. See "Dashboard" below. With its dependency group installed the
-suite is `528 passed`.
+suite is `529 passed`.
 
 No skips and no xfails remain in the research suite: every spec §7 contract is a real test, and the
 environment, cost and state tests run on synthetic paths with hand-computed
