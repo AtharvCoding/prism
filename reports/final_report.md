@@ -1,6 +1,6 @@
 # PRISM — final report (build step 5)
 
-Regenerated from stored results by `make final-report` at commit `fdf7d6956bb55c3054671cb396e385ed241bed43`. Nothing here is recomputed; the holdout is never opened by this report.
+Regenerated from stored results by `make final-report` at commit `442e9db10297ee8692ee98599d9806091723c169`. Nothing here is recomputed; the holdout is never opened by this report.
 
 ## 1. Verdict
 
@@ -11,7 +11,7 @@ Regenerated from stored results by `make final-report` at commit `fdf7d6956bb55c
 | Tier 1, probes | HMM vs VIX threshold (V3 vs C2): 0/4 favourable | **HMM adds nothing over a threshold** |
 | Tier 1, probes | LSTM vs random encoder (V2 vs C1): 1/4 favourable, 1/4 adverse | **LSTM training adds nothing over a random projection** |
 | Tier 2, test 2019-2023 (exploratory) | SAC, 10 seeds per variant: V4 vs V2 FAIL, V4 vs C4 FAIL, V2 vs V1 FAIL | **no comparison passes** |
-| Tier 2, holdout 2024-2026 | not yet evaluated | — |
+| Tier 2, holdout 2024-2026 (confirmatory, one use) | the same frozen agents: V4 vs V2 FAIL, V4 vs C4 FAIL, V2 vs V1 FAIL | **no comparison passes** |
 
 ## 2. Tier 1 (representation, no RL) — summary
 
@@ -113,7 +113,75 @@ Net Sharpe by cost level (bps per side):
 
 ## 4. Tier 2 on the holdout (confirmatory; evaluated once)
 
-Not evaluated.
+2024-01-09 .. 2026-09-30, 684 sessions; the same 40 agents (10 seeds x V1, V2, V4, C4), frozen configs, the six benchmarks re-run through the same environment and costs (5 bps per side + volatility-scaled slippage).
+
+| comparison | asks | paired rule | favourable | adverse | spec non-overlap | median DSR | claimable |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| V4 vs V2 | HMM adds beyond the LSTM (research question) | FAIL | 0/4 | 0/4 | fail | 0.74 | False |
+| V4 vs C4 | HMM vs a VIX threshold | FAIL | 0/4 | 0/4 | fail | 0.74 | False |
+| V2 vs V1 | LSTM latent adds beyond raw features | FAIL | 0/4 | 0/4 | fail | 0.59 | False |
+
+Paired differences, candidate minus control (larger is better on every metric):
+
+| candidate | control | metric | difference [95% CI] | verdict |
+| --- | --- | --- | --- | --- |
+| V4 | V2 | ann. return | 1.7% [-3.3%, 6.3%] | indeterminate |
+| V4 | V2 | Sharpe | 0.18 [-0.31, 0.71] | indeterminate |
+| V4 | V2 | max drawdown | -0.2% [-4.5%, 4.1%] | indeterminate |
+| V4 | V2 | CVaR 95% | -0.0% [-0.3%, 0.2%] | indeterminate |
+| V4 | C4 | ann. return | 0.6% [-4.5%, 5.3%] | indeterminate |
+| V4 | C4 | Sharpe | 0.15 [-0.33, 0.64] | indeterminate |
+| V4 | C4 | max drawdown | 0.4% [-3.1%, 4.1%] | indeterminate |
+| V4 | C4 | CVaR 95% | 0.1% [-0.1%, 0.3%] | indeterminate |
+| V2 | V1 | ann. return | -1.0% [-5.7%, 3.2%] | indeterminate |
+| V2 | V1 | Sharpe | -0.14 [-0.57, 0.33] | indeterminate |
+| V2 | V1 | max drawdown | -1.8% [-6.0%, 2.4%] | indeterminate |
+| V2 | V1 | CVaR 95% | -0.1% [-0.3%, 0.2%] | indeterminate |
+
+Seed means ± seed standard deviation, and the benchmarks:
+
+| variant | ann. return | Sharpe | max drawdown | CVaR 95% |
+| --- | --- | --- | --- | --- |
+| V1 | 8.0% ± 3.5% | 0.91 ± 0.28 | -8.5% ± 2.5% | -1.3% ± 0.2% |
+| V2 | 7.0% ± 3.3% | 0.78 ± 0.34 | -10.4% ± 3.1% | -1.3% ± 0.2% |
+| V4 | 8.7% ± 3.1% | 0.95 ± 0.35 | -10.5% ± 3.4% | -1.3% ± 0.2% |
+| C4 | 8.1% ± 3.5% | 0.81 ± 0.27 | -11.0% ± 2.4% | -1.4% ± 0.1% |
+| BM EqualWeight | 12.6% | 1.29 | -10.2% | -1.3% |
+| BM SixtyForty | 12.7% | 1.27 | -10.6% | -1.4% |
+| BM MinVariance | 4.7% | 1.70 | -2.5% | -0.4% |
+| BM RiskParity | 7.7% | 1.30 | -5.2% | -0.8% |
+| BM VolTarget | 11.2% | 1.08 | -13.1% | -1.5% |
+| BM BuyHoldSPY | 20.5% | 1.27 | -18.8% | -2.2% |
+
+Drawdown episodes (SPY, >= 10%), mean over seeds for the variants:
+
+| episode | strategy | decline | recovery | max dd inside |
+| --- | --- | --- | --- | --- |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | V1 | -5.4% | 8.3% | -6.9% |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | V2 | -6.1% | 8.6% | -7.8% |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | V4 | -8.2% | 9.3% | -9.4% |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | C4 | -7.8% | 9.1% | -9.1% |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | BM|EqualWeight | -10.1% | 12.9% | -10.1% |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | BM|SixtyForty | -10.6% | 14.4% | -10.6% |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | BM|MinVariance | -0.4% | 2.9% | -1.6% |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | BM|RiskParity | -5.1% | 6.7% | -5.2% |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | BM|VolTarget | -12.3% | 7.8% | -12.3% |
+| 1 (2025-02-19 -> 2025-04-08, -18.8%) | BM|BuyHoldSPY | -18.8% | 23.6% | -18.8% |
+
+Net Sharpe by cost level (bps per side):
+
+| strategy | 0.0 | 5.0 | 10.0 | 20.0 |
+| --- | --- | --- | --- | --- |
+| BM|BuyHoldSPY | 1.28 | 1.27 | 1.27 | 1.27 |
+| BM|EqualWeight | 1.3 | 1.29 | 1.28 | 1.27 |
+| BM|MinVariance | 1.78 | 1.7 | 1.61 | 1.43 |
+| BM|RiskParity | 1.32 | 1.3 | 1.28 | 1.25 |
+| BM|SixtyForty | 1.27 | 1.27 | 1.26 | 1.25 |
+| BM|VolTarget | 1.09 | 1.08 | 1.07 | 1.04 |
+| C4 | 1.06 | 0.81 | 0.56 | 0.06 |
+| V1 | 1.19 | 0.91 | 0.64 | 0.09 |
+| V2 | 0.99 | 0.78 | 0.56 | 0.14 |
+| V4 | 1.11 | 0.95 | 0.8 | 0.49 |
 
 ## 5. Learning curves and overfitting
 
@@ -129,7 +197,7 @@ Not evaluated.
 ## 7. Reproducibility statement
 
 * Raw snapshot `snapshot_20261001`, SHA-256 9de525958b076f93d8355029c2f489f1aae9ac93428a26a23e4e2285f2d585f1 (`data/raw/snapshot_20261001/MANIFEST.json`).
-* Code commit of this report: `fdf7d6956bb55c3054671cb396e385ed241bed43`. Master seed 20260101; tuning seeds [1000, 1001, 1002]; final seeds [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].
+* Code commit of this report: `442e9db10297ee8692ee98599d9806091723c169`. Master seed 20260101; tuning seeds [1000, 1001, 1002]; final seeds [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].
 * Pre-registrations: `reports/tables/preregistration.md` (Tier 1), `preregistration_tier2.md` (Tier 2), `preregistration_holdout.md` (holdout); each committed before the data it governs was scored.
 * Command sequence: `make snapshot && make phase-a` (Phase A), `make env-check`, `make tier2` (about 12 h), then once `PRISM_ALLOW_HOLDOUT=1 python scripts/99_final_holdout.py --i-am-sure`, then `make final-report`.
 * The holdout access log is `reports/logs/holdout_access.jsonl`; it has one entry per opening.

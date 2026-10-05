@@ -1222,3 +1222,16 @@ hold the holdout for a redesigned candidate. Choices that followed:
 7. **Not done:** no retraining, tuning or re-selection; no change to any choice after the holdout is read; no second evaluation.
 
 The command to spend the holdout is typed by hand, deliberately (there is no `make` target): `PRISM_ALLOW_HOLDOUT=1 .venv/bin/python scripts/99_final_holdout.py --i-am-sure`.
+
+---
+
+## Gate decisions (holdout)
+
+### Holdout · V4>V2: FAIL · V4>C4: FAIL · V2>V1: FAIL
+**Date:** 2026-10-05 · **Phase B, step 5; confirmatory, one use** · run under `reports/tables/preregistration_holdout.md`; code at commit `442e9db10297ee8692ee98599d9806091723c169`; window 2024-01-09 .. 2026-09-30 (684 sessions); the 40 frozen Tier 2 agents, nothing retrained. Replay check on the extended inputs: max |difference| to the stored states 2.15e-11.
+
+* **V4 vs V2: FAIL** (0/4 favourable, 0/4 adverse); spec non-overlap: fail; median DSR 0.74 -> not claimable. `annualised_return` 1.7% [-3.3%, 6.3%] indeterminate; `sharpe` 0.18 [-0.31, 0.71] indeterminate; `max_drawdown` -0.2% [-4.5%, 4.1%] indeterminate; `cvar_95` -0.0% [-0.3%, 0.2%] indeterminate.
+* **V4 vs C4: FAIL** (0/4 favourable, 0/4 adverse); spec non-overlap: fail; median DSR 0.74 -> not claimable. `annualised_return` 0.6% [-4.5%, 5.3%] indeterminate; `sharpe` 0.15 [-0.33, 0.64] indeterminate; `max_drawdown` 0.4% [-3.1%, 4.1%] indeterminate; `cvar_95` 0.1% [-0.1%, 0.3%] indeterminate.
+* **V2 vs V1: FAIL** (0/4 favourable, 0/4 adverse); spec non-overlap: fail; median DSR 0.59 -> not claimable. `annualised_return` -1.0% [-5.7%, 3.2%] indeterminate; `sharpe` -0.14 [-0.57, 0.33] indeterminate; `max_drawdown` -1.8% [-6.0%, 2.4%] indeterminate; `cvar_95` -0.1% [-0.3%, 0.2%] indeterminate.
+
+The holdout is spent. No result of this evaluation changes a choice; the final report is `reports/final_report.md`.

@@ -19,7 +19,7 @@ what is built and how to run it.
 
 ---
 
-## Current status — Phase A accepted; Tier 2 run (null result); step 5 built, holdout not yet spent
+## Current status — all build steps complete; the holdout is spent (null result replicated)
 
 Phase A (steps 0–4a) is accepted; the Phase A-only restriction in spec §0.3 is
 lifted (DECISIONS.md D-032). Both Tier 1 component gates failed, so the LSTM
@@ -32,7 +32,7 @@ needs. `gymnasium` and `stable-baselines3` are installed.
 | 4a | Tier 1 ablation + Phase A report | complete (both gates fail) |
 | 4b | Environment + costs (`src/prism/env/`) | complete |
 | 4c | SAC + Tier 2 ablation (V1, V2, V4, C4) | complete: no comparison passes (`reports/tier2_report.md`) |
-| **5** | **Final report + holdout** | **built, pre-registered (`preregistration_holdout.md`) and rehearsed on validation; the holdout is not yet read** |
+| **5** | **Final report + holdout** | **complete: holdout evaluated once (2024-01-09 .. 2026-09-30); no comparison passes; `reports/final_report.md`** |
 
 Phase B state variants: V1, V2, V4 and the control **C4** (V2 plus the C2
 threshold-regime columns). Check the environment on the real train split with
