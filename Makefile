@@ -13,7 +13,7 @@ export PYTHONHASHSEED = 0
 .PHONY: help venv install test test-fast test-causality lint snapshot snapshot-dry \
         features hmm encoder states tier1 backtest report clean-reports phase-a env-check \
         tier2 tier2-sanity tier2-smoke final-report holdout-rehearsal \
-        dashboard-install dashboard-verify-frozen
+        dashboard-install dashboard-verify-frozen dashboard-data dashboard-check dashboard
 
 help:  ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -98,6 +98,15 @@ dashboard-install:  ## Dashboard: add the pinned streamlit/plotly group to the e
 
 dashboard-verify-frozen:  ## Dashboard: check every frozen data file against the D0 SHA-256 baseline
 	shasum -a 256 -c --quiet dashboard/frozen_sources.sha256 && echo "frozen files match the baseline"
+
+dashboard-data: dashboard-verify-frozen  ## Dashboard: rebuild dashboard/artifacts from the stored results (never opens the holdout)
+	$(PYTHON) scripts/10_dashboard_data.py
+
+dashboard-check:  ## Dashboard: verify the committed artifacts against their manifest and the final report
+	$(PYTHON) scripts/10_dashboard_data.py --check
+
+dashboard:  ## Dashboard: run the app (http://localhost:8501)
+	$(PYTHON) -m streamlit run dashboard/app.py
 
 # --- Phase B (spec §0.3) -------------------------------------------------- #
 # Deliberately absent: there is no `holdout` target; the one real run is typed by hand:

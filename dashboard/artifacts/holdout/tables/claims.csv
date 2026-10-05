@@ -1,0 +1,4 @@
+candidate,control,gate_pass,favourable_metrics,dsr_median_candidate,claimable
+V4,V2,False,0,0.7388378574182072,False
+V4,C4,False,0,0.7388378574182072,False
+V2,V1,False,0,0.5883280612667341,False

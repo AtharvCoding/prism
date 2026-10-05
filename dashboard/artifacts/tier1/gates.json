@@ -1,0 +1,350 @@
+{
+  "paired_block20": {
+    "lstm_adds_value": {
+      "passes": false,
+      "comparisons": [
+        {
+          "x": "V2",
+          "y": "V1p",
+          "n_favourable": 3,
+          "n_adverse": 0,
+          "n_indeterminate": 1,
+          "passes": true,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "favourable",
+            "fwd_max_drawdown_20": "favourable",
+            "fwd_corr_20": "favourable"
+          }
+        },
+        {
+          "x": "V2",
+          "y": "C1",
+          "n_favourable": 1,
+          "n_adverse": 1,
+          "n_indeterminate": 2,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "adverse",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "favourable"
+          }
+        }
+      ]
+    },
+    "hmm_adds_value": {
+      "passes": false,
+      "comparisons": [
+        {
+          "x": "V3",
+          "y": "C2",
+          "n_favourable": 0,
+          "n_adverse": 0,
+          "n_indeterminate": 4,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "indeterminate"
+          }
+        },
+        {
+          "x": "V3",
+          "y": "C3",
+          "n_favourable": 3,
+          "n_adverse": 0,
+          "n_indeterminate": 1,
+          "passes": true,
+          "per_target": {
+            "fwd_vol_5": "favourable",
+            "fwd_vol_20": "favourable",
+            "fwd_max_drawdown_20": "favourable",
+            "fwd_corr_20": "indeterminate"
+          }
+        }
+      ]
+    },
+    "research_question": {
+      "passes": true,
+      "comparisons": [
+        {
+          "x": "V4",
+          "y": "V2",
+          "n_favourable": 4,
+          "n_adverse": 0,
+          "n_indeterminate": 0,
+          "passes": true,
+          "per_target": {
+            "fwd_vol_5": "favourable",
+            "fwd_vol_20": "favourable",
+            "fwd_max_drawdown_20": "favourable",
+            "fwd_corr_20": "favourable"
+          }
+        }
+      ]
+    }
+  },
+  "spec_nonoverlap_block20": {
+    "lstm_adds_value": {
+      "passes": false,
+      "comparisons": [
+        {
+          "x": "V2",
+          "y": "V1p",
+          "n_favourable": 0,
+          "n_adverse": 0,
+          "n_indeterminate": 4,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "indeterminate"
+          }
+        },
+        {
+          "x": "V2",
+          "y": "C1",
+          "n_favourable": 0,
+          "n_adverse": 0,
+          "n_indeterminate": 4,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "indeterminate"
+          }
+        }
+      ]
+    },
+    "hmm_adds_value": {
+      "passes": false,
+      "comparisons": [
+        {
+          "x": "V3",
+          "y": "C2",
+          "n_favourable": 0,
+          "n_adverse": 0,
+          "n_indeterminate": 4,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "indeterminate"
+          }
+        },
+        {
+          "x": "V3",
+          "y": "C3",
+          "n_favourable": 0,
+          "n_adverse": 0,
+          "n_indeterminate": 4,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "indeterminate"
+          }
+        }
+      ]
+    },
+    "research_question": {
+      "passes": false,
+      "comparisons": [
+        {
+          "x": "V4",
+          "y": "V2",
+          "n_favourable": 0,
+          "n_adverse": 0,
+          "n_indeterminate": 4,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "indeterminate"
+          }
+        }
+      ]
+    }
+  },
+  "paired_block10": {
+    "lstm_adds_value": {
+      "passes": false,
+      "comparisons": [
+        {
+          "x": "V2",
+          "y": "V1p",
+          "n_favourable": 3,
+          "n_adverse": 0,
+          "n_indeterminate": 1,
+          "passes": true,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "favourable",
+            "fwd_max_drawdown_20": "favourable",
+            "fwd_corr_20": "favourable"
+          }
+        },
+        {
+          "x": "V2",
+          "y": "C1",
+          "n_favourable": 1,
+          "n_adverse": 1,
+          "n_indeterminate": 2,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "adverse",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "favourable"
+          }
+        }
+      ]
+    },
+    "hmm_adds_value": {
+      "passes": false,
+      "comparisons": [
+        {
+          "x": "V3",
+          "y": "C2",
+          "n_favourable": 0,
+          "n_adverse": 0,
+          "n_indeterminate": 4,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "indeterminate"
+          }
+        },
+        {
+          "x": "V3",
+          "y": "C3",
+          "n_favourable": 3,
+          "n_adverse": 0,
+          "n_indeterminate": 1,
+          "passes": true,
+          "per_target": {
+            "fwd_vol_5": "favourable",
+            "fwd_vol_20": "favourable",
+            "fwd_max_drawdown_20": "favourable",
+            "fwd_corr_20": "indeterminate"
+          }
+        }
+      ]
+    },
+    "research_question": {
+      "passes": true,
+      "comparisons": [
+        {
+          "x": "V4",
+          "y": "V2",
+          "n_favourable": 4,
+          "n_adverse": 0,
+          "n_indeterminate": 0,
+          "passes": true,
+          "per_target": {
+            "fwd_vol_5": "favourable",
+            "fwd_vol_20": "favourable",
+            "fwd_max_drawdown_20": "favourable",
+            "fwd_corr_20": "favourable"
+          }
+        }
+      ]
+    }
+  },
+  "paired_block40": {
+    "lstm_adds_value": {
+      "passes": false,
+      "comparisons": [
+        {
+          "x": "V2",
+          "y": "V1p",
+          "n_favourable": 3,
+          "n_adverse": 0,
+          "n_indeterminate": 1,
+          "passes": true,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "favourable",
+            "fwd_max_drawdown_20": "favourable",
+            "fwd_corr_20": "favourable"
+          }
+        },
+        {
+          "x": "V2",
+          "y": "C1",
+          "n_favourable": 1,
+          "n_adverse": 1,
+          "n_indeterminate": 2,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "adverse",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "favourable"
+          }
+        }
+      ]
+    },
+    "hmm_adds_value": {
+      "passes": false,
+      "comparisons": [
+        {
+          "x": "V3",
+          "y": "C2",
+          "n_favourable": 0,
+          "n_adverse": 0,
+          "n_indeterminate": 4,
+          "passes": false,
+          "per_target": {
+            "fwd_vol_5": "indeterminate",
+            "fwd_vol_20": "indeterminate",
+            "fwd_max_drawdown_20": "indeterminate",
+            "fwd_corr_20": "indeterminate"
+          }
+        },
+        {
+          "x": "V3",
+          "y": "C3",
+          "n_favourable": 3,
+          "n_adverse": 0,
+          "n_indeterminate": 1,
+          "passes": true,
+          "per_target": {
+            "fwd_vol_5": "favourable",
+            "fwd_vol_20": "favourable",
+            "fwd_max_drawdown_20": "favourable",
+            "fwd_corr_20": "indeterminate"
+          }
+        }
+      ]
+    },
+    "research_question": {
+      "passes": true,
+      "comparisons": [
+        {
+          "x": "V4",
+          "y": "V2",
+          "n_favourable": 4,
+          "n_adverse": 0,
+          "n_indeterminate": 0,
+          "passes": true,
+          "per_target": {
+            "fwd_vol_5": "favourable",
+            "fwd_vol_20": "favourable",
+            "fwd_max_drawdown_20": "favourable",
+            "fwd_corr_20": "favourable"
+          }
+        }
+      ]
+    }
+  }
+}

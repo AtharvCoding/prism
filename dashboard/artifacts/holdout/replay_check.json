@@ -1,0 +1,28 @@
+{
+  "up_to": "2023-12-31",
+  "atol": 1e-09,
+  "variants": {
+    "V1": {
+      "same_index_and_columns": true,
+      "max_abs_diff": 0.0,
+      "rows": 4191
+    },
+    "V2": {
+      "same_index_and_columns": true,
+      "max_abs_diff": 0.0,
+      "rows": 4191
+    },
+    "V4": {
+      "same_index_and_columns": true,
+      "max_abs_diff": 2.1492918556020868e-11,
+      "rows": 4191
+    },
+    "C4": {
+      "same_index_and_columns": true,
+      "max_abs_diff": 0.0,
+      "rows": 4191
+    }
+  },
+  "ok": true,
+  "hash": "8d8482946ce29594910b69f1c8f217afebd81a7b8e8e49814252ed3b4b045488"
+}

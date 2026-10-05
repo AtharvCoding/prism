@@ -1,0 +1,47 @@
+{
+  "selection_metric": "val_mean_log_return (mean over tuning seeds of the best checkpoint)",
+  "variants": {
+    "V1": {
+      "cfg_id": "g0.97_n64x64_lr0.001",
+      "gamma": 0.97,
+      "hidden": [
+        64,
+        64
+      ],
+      "lr": 0.001,
+      "val_best_mean": 0.00015059365127827236
+    },
+    "V2": {
+      "cfg_id": "g0.97_n64x64_lr0.0003",
+      "gamma": 0.97,
+      "hidden": [
+        64,
+        64
+      ],
+      "lr": 0.0003,
+      "val_best_mean": 0.0006289460898910458
+    },
+    "V4": {
+      "cfg_id": "g0.97_n64x64_lr0.0003",
+      "gamma": 0.97,
+      "hidden": [
+        64,
+        64
+      ],
+      "lr": 0.0003,
+      "val_best_mean": 0.000701125779932826
+    },
+    "C4": {
+      "cfg_id": "g0.9_n64x64_lr0.001",
+      "gamma": 0.9,
+      "hidden": [
+        64,
+        64
+      ],
+      "lr": 0.001,
+      "val_best_mean": 0.0003937900124388808
+    }
+  },
+  "hash": "52b76e2455b4f259bb9e95e2e9bf2d8dba2dbe1864a1438a3e2ee32a3fd598a4",
+  "frozen_utc": "2026-10-05T04:35:45+00:00"
+}

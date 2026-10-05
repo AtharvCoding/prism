@@ -1,0 +1,206 @@
+{
+ "baseline": "dashboard/frozen_sources.sha256",
+ "baseline_sha256": "d199f337d2de4ce665d19513d46d7f6f21266709b3c9bea544cc00d191a85a7d",
+ "files": {
+  "facts.json": {
+   "kind": "derived",
+   "sha256": "b9174758a39faab2d64f59acde7bf5836a465282ee293542fb6514aace79e152"
+  },
+  "holdout/eval_done.json": {
+   "kind": "copy",
+   "source": "data/processed/holdout/eval_done.json",
+   "sha256": "3187d46584c082a82ed3dbf61e5de4c862a31d62011d3f659bc46ece98bb3dad"
+  },
+  "holdout/replay_check.json": {
+   "kind": "copy",
+   "source": "data/processed/holdout/replay_check.json",
+   "sha256": "4184ae2c083d0cc09372ea16c667985e964aeca908f82017dd4262610316d636"
+  },
+  "holdout/tables/benchmark_ci.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/benchmark_ci.csv",
+   "sha256": "e5db3082a0bb4d9cebb740715e24994a8884301d0b0ccb07ed8d7f55022994ed"
+  },
+  "holdout/tables/benchmark_metrics.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/benchmark_metrics.csv",
+   "sha256": "2f1051b8295ed8bf5b850e79e0045cd9687102589111ed40389942607ec4e9c1"
+  },
+  "holdout/tables/calendar.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/calendar.csv",
+   "sha256": "73e3e83a10c8744913f93e3e297d2b19d673d20a6a3054a91e39d6799fdc33c3"
+  },
+  "holdout/tables/claims.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/claims.csv",
+   "sha256": "d4eead05f2a620cc096db37638b0f074129bdd276bf4fee3a9fecccec64925c7"
+  },
+  "holdout/tables/cost_sensitivity.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/cost_sensitivity.csv",
+   "sha256": "5c99b50fc384fa804f096f631fd0e152daeb9638e90b25baf1340a05f7578834"
+  },
+  "holdout/tables/dsr.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/dsr.csv",
+   "sha256": "f30b312f2c55cabe80f5a266405fece56bdbebf896985a2bf3b0dea6d4e3347d"
+  },
+  "holdout/tables/episodes.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/episodes.csv",
+   "sha256": "71d3f4a54000c1b4f2bc2c7b5d064eb9efb759f2f269b5fc2dc6da78d610a701"
+  },
+  "holdout/tables/paired_block10.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/paired_block10.csv",
+   "sha256": "1058f07760957e940f34be1292d4e969b112682192891455682e0fa4affa50a6"
+  },
+  "holdout/tables/paired_block20.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/paired_block20.csv",
+   "sha256": "83faecc06fa20687a7a5657d54219ef1311a767f222af609668e272999562418"
+  },
+  "holdout/tables/paired_block40.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/paired_block40.csv",
+   "sha256": "c80444badb9543ba4cb1cd084783bcf87b10b2ea6b8d325959ee38e99e4b3c0c"
+  },
+  "holdout/tables/seed_band.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/seed_band.csv",
+   "sha256": "3c10d0013cb362107e737f15da7c33c59d632466861d5fbadd1412d781d0b354"
+  },
+  "holdout/tables/seed_metrics_C4.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/seed_metrics_C4.csv",
+   "sha256": "3db6f220225050ea1318f7ba2e63adc174fc8d436df0acd24013fde45c3be916"
+  },
+  "holdout/tables/seed_metrics_V1.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/seed_metrics_V1.csv",
+   "sha256": "c4a7929e9b2cee25acb9471d545b28dab2b153430f095b2b1be00e5facb3503d"
+  },
+  "holdout/tables/seed_metrics_V2.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/seed_metrics_V2.csv",
+   "sha256": "00b949394eb2abb585deeee59263e3d1b8346b62f42887de5141e1fa53bf04f4"
+  },
+  "holdout/tables/seed_metrics_V4.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/seed_metrics_V4.csv",
+   "sha256": "4a73415d0ddf11fb6858f555a4e8f6474bc4f9e6508c8abaef498daa1d66a89b"
+  },
+  "holdout/tables/turnover.csv": {
+   "kind": "copy",
+   "source": "data/processed/holdout/tables/turnover.csv",
+   "sha256": "a4ce34d5fe45298914b97392b8aebd2bf22c7f9636d2bde944f622fd434d57f3"
+  },
+  "report_check.json": {
+   "kind": "check",
+   "sha256": "3ac2c985b1cea5e8cdf598b91ea30a7afb74f17ff36bc6314e114f9b5088e2b4"
+  },
+  "test/eval_done.json": {
+   "kind": "copy",
+   "source": "data/processed/tier2/eval_done.json",
+   "sha256": "1b01c60db426964165e520b8f5db7a7f593df193e2f68035055eb688c86334b1"
+  },
+  "test/tables/benchmark_ci.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/benchmark_ci.csv",
+   "sha256": "ce26cf8f12458155ac558f06d52befa31621068f5a39d8adbd9802ee2b6a40a2"
+  },
+  "test/tables/benchmark_metrics.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/benchmark_metrics.csv",
+   "sha256": "12b6b6c9dc48d30647e87aaba43d2929f69c1afd39d2c37e99408d25e63b0e01"
+  },
+  "test/tables/calendar.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/calendar.csv",
+   "sha256": "7e335fd5bcf1f16c01865813c038fc1b7b1758564e773f5675a9ce7800e70bea"
+  },
+  "test/tables/claims.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/claims.csv",
+   "sha256": "48d700e98361cb40643628eb1ada80f0cbb44708398d1adb9732c8d2df5a3781"
+  },
+  "test/tables/cost_sensitivity.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/cost_sensitivity.csv",
+   "sha256": "25c660360e6b0e8fb335191a2ae3e2de0f933f57728b88a39cfb68d54b77c784"
+  },
+  "test/tables/dsr.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/dsr.csv",
+   "sha256": "52d7126ee0cf9f6f12734c55eb3b76b7eb66b9c7292d59e8d77986bef7e9da89"
+  },
+  "test/tables/episodes.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/episodes.csv",
+   "sha256": "2d9c50328430871c3900e3504211820c3adf720d0eb80e19e65483b4f2d6079e"
+  },
+  "test/tables/paired_block10.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/paired_block10.csv",
+   "sha256": "3c18889e66523defbbbb33607d99993cea657e0a7db8be11dbdfc68d42028d3e"
+  },
+  "test/tables/paired_block20.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/paired_block20.csv",
+   "sha256": "54dd6d7d8130436fd5c1d6e2ea6acd5b0fceb3f6171f5cb7930e92fe3c659e3e"
+  },
+  "test/tables/paired_block40.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/paired_block40.csv",
+   "sha256": "04226b6ec1910188588879c960ef2a4a26116bea7101cb3fed331857980ddc11"
+  },
+  "test/tables/seed_band.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/seed_band.csv",
+   "sha256": "35ccecffc897898b45b6582775322a29bef19d1c46e1276db8fbd8e3e63a1acd"
+  },
+  "test/tables/seed_metrics_C4.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/seed_metrics_C4.csv",
+   "sha256": "639cc39d4d9be997f8c0bd12aa0ccfec6795208482f80be6fa82b258cafb457b"
+  },
+  "test/tables/seed_metrics_V1.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/seed_metrics_V1.csv",
+   "sha256": "1813f3f7eae17c4312531d8d751f0a030be44ec93bafd87192e96e376c6d4578"
+  },
+  "test/tables/seed_metrics_V2.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/seed_metrics_V2.csv",
+   "sha256": "288990fc500765650b8af9012a5d75245233af1f9d0b25034e32063ba96a1798"
+  },
+  "test/tables/seed_metrics_V4.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/seed_metrics_V4.csv",
+   "sha256": "3faacacbb9c132d016418529d1e5b4daf7bee6e5751ec7e50d2af652b84818de"
+  },
+  "test/tables/turnover.csv": {
+   "kind": "copy",
+   "source": "data/processed/tier2/tables/turnover.csv",
+   "sha256": "b375bdb0f806e0df200f00fd99d1f8d0a9a1093e852da550a22c9e342f4a904c"
+  },
+  "tier1/gates.json": {
+   "kind": "copy",
+   "source": "data/processed/tier1/gates.json",
+   "sha256": "db0adb2884f49a43d0fc7e976084271667ca5534db1831cdcf9dd1c954430eb3"
+  },
+  "tier2/chosen_configs.json": {
+   "kind": "copy",
+   "source": "data/processed/tier2/chosen_configs.json",
+   "sha256": "cdcc63dfcf6372124aca6e29db7a936423c9e148a6b184a428c0fcda94afaaf2"
+  },
+  "tier2/learning_curves.csv": {
+   "kind": "derived",
+   "sha256": "952c5cf129272dfbb446ef55f5794ff174323d792206df589821221b3f2db2c5",
+   "n_sources": 40,
+   "sources_hash": "4b891c7ca1a1dcedce3dd650373fe6f44ed1d70d040519fa9604242d34f398af"
+  }
+ },
+ "hash": "18099fedd1a76c1fb3698dfd6195c99128a680fcce79cd617a575709abe79d9b"
+}
