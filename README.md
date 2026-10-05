@@ -19,7 +19,7 @@ what is built and how to run it.
 
 ---
 
-## Current status — Phase A accepted, Phase B step 4c built (not yet run)
+## Current status — Phase A accepted; Tier 2 run (null result); step 5 built, holdout not yet spent
 
 Phase A (steps 0–4a) is accepted; the Phase A-only restriction in spec §0.3 is
 lifted (DECISIONS.md D-032). Both Tier 1 component gates failed, so the LSTM
@@ -31,8 +31,8 @@ needs. `gymnasium` and `stable-baselines3` are installed.
 | 0–3b | Repo, data, HMM, encoder, state assembly | complete |
 | 4a | Tier 1 ablation + Phase A report | complete (both gates fail) |
 | 4b | Environment + costs (`src/prism/env/`) | complete |
-| **4c** | **SAC + Tier 2 ablation** (V1, V2, V4, C4) | **built and pre-registered; sanity gates passed; the run itself (`make tier2`, about 12 h) is not started** |
-| 5 | Final report + holdout | not started |
+| 4c | SAC + Tier 2 ablation (V1, V2, V4, C4) | complete: no comparison passes (`reports/tier2_report.md`) |
+| **5** | **Final report + holdout** | **built, pre-registered (`preregistration_holdout.md`) and rehearsed on validation; the holdout is not yet read** |
 
 Phase B state variants: V1, V2, V4 and the control **C4** (V2 plus the C2
 threshold-regime columns). Check the environment on the real train split with
@@ -49,7 +49,7 @@ size on the **validation** split. The test split was viewed in Tier 1, so Tier 2
 results on it are exploratory; the holdout stays reserved for step 5.
 
 ```
-379 passed
+385 passed
 ```
 
 No skips and no xfails remain: every spec §7 contract is a real test, and the

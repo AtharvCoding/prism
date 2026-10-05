@@ -12,7 +12,7 @@ export PYTHONHASHSEED = 0
 .DEFAULT_GOAL := help
 .PHONY: help venv install test test-fast test-causality lint snapshot snapshot-dry \
         features hmm encoder states tier1 backtest report clean-reports phase-a env-check \
-        tier2 tier2-sanity tier2-smoke
+        tier2 tier2-sanity tier2-smoke final-report holdout-rehearsal
 
 help:  ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -85,7 +85,14 @@ tier2-sanity:  ## Step 4c: only the SAC sanity gates (train/validation only)
 tier2-smoke:  ## Step 4c: whole pipeline at toy size on the VALIDATION split (never reads test)
 	$(PYTHON) scripts/05_train_agents.py --smoke
 
+final-report:  ## Step 5: regenerate the consolidated final report from stored results (never opens the holdout)
+	$(PYTHON) scripts/08_final_report.py
+
+holdout-rehearsal:  ## Step 5: exercise the whole holdout path on the validation split (never opens the holdout)
+	$(PYTHON) scripts/99_final_holdout.py --rehearse
+
 # --- Phase B (spec §0.3) -------------------------------------------------- #
-# Deliberately absent: there is no `holdout` target. Phase B must
+# Deliberately absent: there is no `holdout` target; the one real run is typed by hand:
+#   PRISM_ALLOW_HOLDOUT=1 python scripts/99_final_holdout.py --i-am-sure Phase B must
 # not be reachable by a single command until Phase A's exit criteria are met
 # and reviewed, and the holdout is evaluated once, by hand, with both gates.

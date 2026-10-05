@@ -123,6 +123,7 @@ def build_env_data(
     *,
     plan=None,  # noqa: ANN001 - prism.splits.SplitPlan
     risky: list[str] | None = None,
+    final_holdout: bool = False,
 ) -> EnvData:
     """Arrays for one variant's ``state`` frame, restricted to one split.
 
@@ -136,7 +137,13 @@ def build_env_data(
     from prism.splits import build_split_plan
 
     if split == "holdout":
-        raise PermissionError("the holdout is locked until build step 5 (spec §6.3)")
+        import os
+
+        from prism.data.loaders import HOLDOUT_ENV_VAR
+
+        if not (final_holdout and os.environ.get(HOLDOUT_ENV_VAR) == "1"):
+            raise PermissionError("the holdout is locked until build step 5 (spec §6.3): final_holdout=True "
+                                  f"and {HOLDOUT_ENV_VAR}=1 are both required")
     plan = plan if plan is not None else build_split_plan(cfg)
     risky = list(risky) if risky is not None else list(cfg.data.allocatable[cfg.env.universe])
 
@@ -145,7 +152,8 @@ def build_env_data(
 
     sessions = pd.DatetimeIndex(state.index).intersection(close.index).sort_values()
     sessions = sessions[(sessions >= plan[split].effective_start) & (sessions <= plan[split].effective_end)]
-    assert_not_holdout(cfg, sessions, context=f"env data ({split})")
+    if split != "holdout":
+        assert_not_holdout(cfg, sessions, context=f"env data ({split})")
     if len(sessions) < 2:
         raise ValueError(f"split {split!r} has fewer than 2 sessions in the state frame")
     # Returns are per-session: the sessions must be consecutive in the price panel.

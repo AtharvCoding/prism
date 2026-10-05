@@ -49,9 +49,16 @@ def variant_env_data(
     *,
     plan: SplitPlan | None = None,
     risky: list[str] | None = None,
+    state: pd.DataFrame | None = None,
+    final_holdout: bool = False,
 ) -> EnvData:
-    """One variant's state frame, restricted to ``split``'s effective range, as env arrays."""
+    """One variant's state frame, restricted to ``split``'s effective range, as env arrays.
+
+    ``state`` supplies an in-memory frame (the holdout run's extended states); ``final_holdout`` is
+    passed through to ``build_env_data`` and is the only way a holdout split can be built.
+    """
     plan = plan if plan is not None else build_split_plan(cfg)
-    state = pd.read_parquet(cfg.path("processed") / "states" / f"{variant}.parquet")
+    if state is None:
+        state = pd.read_parquet(cfg.path("processed") / "states" / f"{variant}.parquet")
     state = state.loc[: min(plan[split].effective_end, close.index.max())]
-    return build_env_data(cfg, state, close, split, plan=plan, risky=risky)
+    return build_env_data(cfg, state, close, split, plan=plan, risky=risky, final_holdout=final_holdout)

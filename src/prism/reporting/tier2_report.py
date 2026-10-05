@@ -100,11 +100,11 @@ def decisions_entry(plan: Tier2Plan, res: dict[str, Any], frozen: dict[str, Any]
     return "\n".join(L)
 
 
-def append_decisions(root: Path, text: str) -> bool:
-    """Append once: returns False (and writes nothing) if a Tier 2 gate entry is already present."""
+def append_decisions(root: Path, text: str, marker: str = DECISIONS_MARKER) -> bool:
+    """Append once: returns False (and writes nothing) if an entry with ``marker`` is already present."""
     path = root / "DECISIONS.md"
     cur = path.read_text()
-    if DECISIONS_MARKER in cur:
+    if marker in cur:
         return False
     path.write_text(cur.rstrip("\n") + "\n\n---\n\n" + text.rstrip("\n") + "\n")
     return True

@@ -71,6 +71,13 @@ class Tier2Plan:
     log_dir: Path
     eval_split: str = "test"
     smoke: bool = False
+    #: Where the trained runs and the frozen configs live, if not ``out_dir`` (the holdout run reads the
+    #: Tier 2 agents from here and writes its own outputs to ``out_dir``).
+    runs_dir: Path | None = None
+
+    @property
+    def runs(self) -> Path:
+        return self.runs_dir if self.runs_dir is not None else self.out_dir
 
     @classmethod
     def from_config(cls, cfg, root: Path | None = None) -> Tier2Plan:  # noqa: ANN001
@@ -153,7 +160,7 @@ def run_pool(plan: Tier2Plan, specs: list[dict[str, Any]], log) -> int:  # noqa:
 
 def _results(plan: Tier2Plan, stage: str) -> pd.DataFrame:
     rows = []
-    for f in sorted((plan.out_dir / "runs" / stage).glob("*/*/seed*/result.json")):
+    for f in sorted((plan.runs / "runs" / stage).glob("*/*/seed*/result.json")):
         r = json.loads(f.read_text())
         b, fin = r["best"], r["final"]
         rows.append({
@@ -210,7 +217,7 @@ def freeze_configs(plan: Tier2Plan, log) -> dict[str, SacConfig]:  # noqa: ANN00
 
 
 def load_frozen(plan: Tier2Plan) -> dict[str, SacConfig]:
-    path = plan.out_dir / "chosen_configs.json"
+    path = plan.runs / "chosen_configs.json"
     if not path.exists():
         raise RuntimeError("chosen configurations are not frozen on disk; the test split stays closed")
     rec = json.loads(path.read_text())
@@ -222,7 +229,8 @@ def load_frozen(plan: Tier2Plan) -> dict[str, SacConfig]:
 # --------------------------------------------------------------------------- #
 # the single evaluation of the test split
 # --------------------------------------------------------------------------- #
-def evaluate_test(plan: Tier2Plan, cfg, log, sanity: dict | None) -> Path:  # noqa: ANN001
+def evaluate_test(plan: Tier2Plan, cfg, log, sanity: dict | None, *, close: pd.DataFrame | None = None,  # noqa: ANN001
+                  states: dict[str, pd.DataFrame] | None = None, final_holdout: bool = False) -> Path:
     """Score every final checkpoint and every benchmark ONCE on the evaluation split; write daily net returns."""
     from prism.agents.data import load_close, variant_env_data
     from prism.splits import build_split_plan
@@ -237,19 +245,23 @@ def evaluate_test(plan: Tier2Plan, cfg, log, sanity: dict | None) -> Path:  # no
     frozen = load_frozen(plan)
     for v in plan.variants:
         for s in plan.final_seeds:
-            if not is_done(job_dir(plan.out_dir, "final", v, frozen[v].cfg_id, s)):
+            if not is_done(job_dir(plan.runs, "final", v, frozen[v].cfg_id, s)):
                 raise RuntimeError(f"final run {v} seed {s} is not finished; refusing to evaluate")
 
     log.info("EVALUATING THE %s SPLIT (once)", plan.eval_split.upper())
     split_plan = build_split_plan(cfg)
-    close = load_close(cfg, plan.eval_split)
+    if close is None:
+        close = load_close(cfg, plan.eval_split)
+    elif plan.eval_split != "holdout" and not plan.smoke:
+        raise RuntimeError("injected inputs are for the holdout evaluation (or a rehearsal) only")
     base_cost = CostModel.from_config(cfg)
     cols: dict[str, pd.Series] = {}
     meta: dict[str, Any] = {"weights": {}, "turnover": {}}
     for v in plan.variants:
-        data = variant_env_data(cfg, v, close, plan.eval_split, plan=split_plan)
+        data = variant_env_data(cfg, v, close, plan.eval_split, plan=split_plan,
+                                state=None if states is None else states[v], final_holdout=final_holdout)
         for s in plan.final_seeds:
-            model = load_agent(job_dir(plan.out_dir, "final", v, frozen[v].cfg_id, s) / "best.zip")
+            model = load_agent(job_dir(plan.runs, "final", v, frozen[v].cfg_id, s) / "best.zip")
             policy = greedy_policy(model)
             for bps in COST_LEVELS:
                 env = make_env(cfg, data, mode="eval", cost_model=base_cost.scaled(bps))
@@ -261,7 +273,8 @@ def evaluate_test(plan: Tier2Plan, cfg, log, sanity: dict | None) -> Path:  # no
         log.info("evaluated %s (%d seeds)", v, len(plan.final_seeds))
     # Benchmarks re-run through the same env and cost model (D-034): lines = 13 risky, SPY, CASH.
     risky = [*cfg.data.allocatable[cfg.env.universe], "SPY"]
-    bdata = variant_env_data(cfg, "V1", close, plan.eval_split, plan=split_plan, risky=risky)
+    bdata = variant_env_data(cfg, "V1", close, plan.eval_split, plan=split_plan, risky=risky,
+                             state=None if states is None else states["V1"], final_holdout=final_holdout)
     frames = benchmark_weight_frames(cfg, close, bdata)
     for name in BENCHMARKS:
         for bps in COST_LEVELS:

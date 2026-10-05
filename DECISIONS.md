@@ -1198,3 +1198,27 @@ Rule, as pre-registered: a comparison X vs Y passes iff the paired 95% CI (stati
 Block-length sensitivity (verdict of the paired rule): block 10: V4>V2 fail, V4>C4 fail, V2>V1 fail; block 40: V4>V2 fail, V4>C4 fail, V2>V1 fail.
 
 **Limitations recorded with the decision.** (a) The evaluation split is the Tier 1 test split, already viewed in Tier 1 and used to choose the variant set (D-029, D-032); this result is exploratory, and confirmatory evidence needs the holdout under its own pre-registration (build step 5). (b) Hyperparameters were tuned on one validation year (about 46 weekly decisions), so selection is noisy. (c) One test window; per-episode numbers are descriptive. (d) Seeds share the data, so the seed band is optimiser variance, not sampling variance of the market.
+
+### D-042 · Step 5 design: the holdout is spent once, on the frozen Tier 2 agents
+**Date:** 2026-10-05 · **Decided by:** principal investigator (protocol: frozen agents, confirmatory); implementation mine · **Status:** built and rehearsed; the holdout has NOT been read
+
+The principal investigator chose, from three options, to evaluate the 40 frozen Tier 2 agents on the holdout under a new pre-registration (`reports/tables/preregistration_holdout.md`), not to
+hold the holdout for a redesigned candidate. Choices that followed:
+
+1. **Inputs for 2024-2026.** The step 1-3b states stop at the test split's end by design, so the holdout rows of V1, V2, V4 and C4 are produced by the same causal walk-forward pipeline extended through
+   the holdout (`prism.holdout.build_extended_states`: features and pruning with the step-1 fit windows, the pinned H1/K=2 HMM, the selected DAE encoder, the VIX threshold, the train-split scaler),
+   with everything read from the persisted step 2-3 summaries; nothing is re-selected. It writes to `data/processed/holdout/`, never to a pre-registered file.
+2. **A replay check as a hard gate.** Run with its end at the test split's end (no holdout row read), the extended pipeline reproduced all four stored state files with a maximum absolute difference of
+   3.2e-11 (V4 only, from the HMM posteriors; V1, V2 and C4 exactly), in 5 minutes. The real run requires the same, to 1e-9, on every row up to 2023-12-31, and aborts without evaluating if not; no fallback
+   and no widened tolerance. This is what makes "the agents see the same inputs" a checked fact, and the extension a pure addition of rows.
+3. **Everything frozen is pinned by SHA-256 in the pre-registration**: the four state files and schema, `chosen_configs.json` and all 40 `best.zip` checkpoints (46 hashes). The runner verifies them before it
+   reads the holdout, and refuses if the pre-registration is uncommitted or modified.
+4. **Locks.** `99_final_holdout.py` needs `--i-am-sure` and `PRISM_ALLOW_HOLDOUT=1`, logs the opening in `reports/logs/holdout_access.jsonl`, and refuses once `data/processed/holdout/eval_done.json` exists. The env
+   builder's old unconditional refusal became a two-key refusal (`final_holdout=True` and the environment variable); `load_close` still refuses outright. A failure before the marker evaluated nothing and may be repeated.
+5. **Same evaluation, same rule.** `tier2.evaluate_test` and `analyse` are reused unchanged in logic (injected inputs, `runs_dir` separating the Tier 2 agents from the holdout outputs): same three comparisons, four metrics, bootstrap
+   (days and seeds), deflated Sharpe, episodes, benchmarks and costs. Reading rules for each outcome (null replicated / unconfirmed signal / pass on both) are fixed in advance in the pre-registration.
+6. **Rehearsal.** `scripts/99_final_holdout.py --rehearse` ran the entire path (replay check, evaluation of the 40 agents and 6 benchmarks, bootstrap, report) on the VALIDATION split into
+   `data/processed/holdout_rehearsal/`, reading no holdout row. `make final-report` regenerates `reports/final_report.md` from stored results (Tier 1, Tier 2, holdout if present) and never opens the holdout.
+7. **Not done:** no retraining, tuning or re-selection; no change to any choice after the holdout is read; no second evaluation.
+
+The command to spend the holdout is typed by hand, deliberately (there is no `make` target): `PRISM_ALLOW_HOLDOUT=1 .venv/bin/python scripts/99_final_holdout.py --i-am-sure`.
