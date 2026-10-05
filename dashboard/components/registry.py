@@ -33,6 +33,16 @@ PAGES: tuple[PageInfo, ...] = (
         "opened exactly once.",
     ),
     PageInfo(
+        "regimes", "views/04_regimes.py", "Regimes", ":material/thermostat:",
+        "The HMM sorts each day into a Calm or a Volatile regime. A plain VIX threshold makes the same call on "
+        "{regime_agreement} of days, and the VIX is high on {volatile_overlap} of the days the HMM calls Volatile.",
+    ),
+    PageInfo(
+        "latent", "views/05_latent.py", "LSTM latent", ":material/hub:",
+        "The LSTM compresses the last {encoder_window} days of market features into {latent_dim} numbers. In the Tier 1 test "
+        "a trained LSTM was no more useful than an untrained one of the same shape.",
+    ),
+    PageInfo(
         "agent", "views/06_agent.py", "The agent", ":material/smart_toy:",
         "Each agent re-weights the portfolio heavily every week ({agents_turnover} of it, against {bench_turnover} for the "
         "benchmarks), and trading costs take a large part of its return.",

@@ -58,3 +58,82 @@ def learning_curves() -> pd.DataFrame:
     """Mean over the final seeds, per variant and checkpoint, of the stored per-decision log net return."""
     curves = pd.read_csv(ARTIFACTS / "tier2" / "learning_curves.csv")
     return curves.groupby(["variant", "step"], as_index=False)[["train_mean_log_return", "val_mean_log_return"]].mean()
+
+
+# --------------------------------------------------------------------------- regimes and latents (derived stage)
+@st.cache_data(show_spinner=False)
+def regimes() -> pd.DataFrame:
+    """Daily P(Calm), P(Volatile) and the VIX-threshold state (NaN before the state files begin)."""
+    return pd.read_parquet(ARTIFACTS / "regimes" / "daily.parquet")
+
+
+@st.cache_data(show_spinner=False)
+def regime_summary() -> dict[str, Any]:
+    return json.loads((ARTIFACTS / "regimes" / "summary.json").read_text(encoding="utf-8"))
+
+
+@st.cache_data(show_spinner=False)
+def spy() -> pd.Series:
+    return pd.read_parquet(ARTIFACTS / "regimes" / "spy.parquet")["spy_index"]
+
+
+@st.cache_data(show_spinner=False)
+def hmm_folds() -> pd.DataFrame:
+    """Per-fold HMM parameters: every fold to the test split's end, plus the holdout folds once the gated replay has run."""
+    parts = [pd.read_csv(p, parse_dates=["fit_start", "fit_end", "apply_start", "apply_end"])
+             for p in (ARTIFACTS / "regimes" / "hmm_folds_test.csv", ARTIFACTS / "regimes" / "hmm_folds_holdout.csv") if p.exists()]
+    return pd.concat(parts, ignore_index=True)
+
+
+@st.cache_data(show_spinner=False)
+def k_selection() -> pd.DataFrame:
+    return pd.read_csv(ARTIFACTS / "regimes" / "k_selection.csv")
+
+
+@st.cache_data(show_spinner=False)
+def selection_dwell() -> pd.DataFrame:
+    return pd.read_csv(ARTIFACTS / "regimes" / "selection_dwell.csv")
+
+
+@st.cache_data(show_spinner=False)
+def latent_map() -> pd.DataFrame:
+    return pd.read_parquet(ARTIFACTS / "latents" / "pca.parquet")
+
+
+@st.cache_data(show_spinner=False)
+def latent_folds() -> pd.DataFrame:
+    return pd.read_csv(ARTIFACTS / "latents" / "folds.csv", parse_dates=["start", "end", "fit_end"])
+
+
+# --------------------------------------------------------------------------- returns and weights
+@st.cache_data(show_spinner=False)
+def eval_daily(window: str) -> pd.DataFrame:
+    """The stored daily net returns of one window: every seed, variant and benchmark at every cost level."""
+    return pd.read_parquet(ARTIFACTS / window / "eval_daily.parquet")
+
+
+@st.cache_data(show_spinner=False)
+def seed_dsr(window: str) -> pd.DataFrame:
+    return pd.read_csv(ARTIFACTS / window / "seed_dsr.csv")
+
+
+def weight_windows() -> list[str]:
+    """Windows whose weekly weights have been recorded. The holdout appears once the gated replay has been run."""
+    return [w for w in ("test", "holdout") if (ARTIFACTS / "weights" / f"{w}_agents.parquet").exists()]
+
+
+@st.cache_data(show_spinner=False)
+def weights(kind: str) -> pd.DataFrame:
+    """Weekly weights of the agents (``kind="agents"``) or the benchmarks, over every recorded window."""
+    parts = []
+    for w in weight_windows():
+        f = pd.read_parquet(ARTIFACTS / "weights" / f"{w}_{kind}.parquet")
+        f.insert(0, "window", w)
+        parts.append(f)
+    return pd.concat(parts, ignore_index=True)
+
+
+@st.cache_data(show_spinner=False)
+def live_models_manifest() -> dict[str, Any] | None:
+    path = ARTIFACTS / "live" / "models_manifest.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None

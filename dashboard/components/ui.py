@@ -41,7 +41,11 @@ def takeaway_values(facts: dict[str, Any]) -> dict[str, str]:
     """The numbers the takeaway templates quote, across both evaluation windows."""
     w = facts["windows"]
     both = lambda k: [min(w["test"][k][0], w["holdout"][k][0]), max(w["test"][k][1], w["holdout"][k][1])]  # noqa: E731
+    agree = data.regime_summary()["agreement"]["all"]
     return {
+        "regime_agreement": pct(agree["agreement"]),
+        "volatile_overlap": pct(agree["both_volatile"] / (agree["both_volatile"] + agree["hmm_only"])),
+        "encoder_window": str(facts["models"]["encoder"]["window"]), "latent_dim": str(facts["models"]["encoder"]["latent_dim"]),
         "agents_turnover": pct_range(both("turnover_agents")),
         "bench_turnover": pct_range(both("turnover_benchmarks"), 1),
         "passed_test": str(w["test"]["comparisons_passing"]),
@@ -49,8 +53,8 @@ def takeaway_values(facts: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def takeaway_text(key: str, facts: dict[str, Any]) -> str:
-    return BY_KEY[key].takeaway.format(**takeaway_values(facts))
+def takeaway_text(key: str, facts: dict[str, Any] | None = None) -> str:
+    return BY_KEY[key].takeaway.format(**takeaway_values(facts if facts is not None else data.facts()))
 
 
 def page_header(key: str) -> dict[str, Any]:

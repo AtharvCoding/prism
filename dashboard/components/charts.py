@@ -156,3 +156,132 @@ def forest(test: pd.DataFrame, holdout: pd.DataFrame, metric: str, c: dict[str, 
     fig.update_xaxes(title_text=f"difference in {METRIC_LABEL[metric]}, candidate minus control (right of zero favours the candidate)",
                      tickformat=fmt)
     return theme.style(fig, c, height=330)
+
+
+# --------------------------------------------------------------------------- regimes (page 4)
+def _runs(flag: pd.Series) -> list[tuple[pd.Timestamp, pd.Timestamp, bool]]:
+    """Consecutive runs of a boolean daily series as (first day, last day, value)."""
+    change = flag.ne(flag.shift()).cumsum()
+    return [(g.index[0], g.index[-1], bool(g.iloc[0])) for _, g in flag.groupby(change)]
+
+
+def _legend_key(fig: go.Figure, name: str, color: str, opacity: float = 1.0) -> None:
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers", name=name, hoverinfo="skip",
+                             marker={"size": 11, "symbol": "square", "color": color, "opacity": opacity}))
+
+
+def regime_price(spy: pd.Series, regimes: pd.DataFrame, fit_early: list[str], recessions: dict[str, Any] | None,
+                 c: dict[str, Any]) -> go.Figure:
+    """The S&P 500 (indexed, log scale) with each day shaded by the regime the HMM assigned to it at the time."""
+    day = pd.Timedelta(days=1)
+    shapes = [{"type": "rect", "xref": "x", "yref": "paper", "x0": fit_early[0], "x1": fit_early[1], "y0": 0, "y1": 1,
+               "fillcolor": c["muted"], "opacity": 0.14, "line": {"width": 0}, "layer": "below"}]
+    for start, end, volatile in _runs(regimes.p_volatile > 0.5):
+        shapes.append({"type": "rect", "xref": "x", "yref": "paper", "x0": start, "x1": end + day, "y0": 0, "y1": 1,
+                       "fillcolor": c["volatile"] if volatile else c["calm"], "opacity": 0.30 if volatile else 0.10,
+                       "line": {"width": 0}, "layer": "below"})
+    fig = go.Figure(go.Scatter(x=spy.index, y=spy, mode="lines", name="S&P 500 (indexed to 100)",
+                               line={"color": c["ink"], "width": 1.5}, hovertemplate="%{x|%d %b %Y}<br>%{y:.0f}<extra></extra>"))
+    _legend_key(fig, "Calm", c["calm"], 0.45)
+    _legend_key(fig, "Volatile", c["volatile"], 0.6)
+    _legend_key(fig, "First fit window (no regime estimate)", c["muted"], 0.5)
+    if recessions:
+        for r in recessions.values():
+            shapes.append({"type": "rect", "xref": "x", "yref": "paper", "x0": r["peak"], "x1": r["trough"], "y0": 0, "y1": 0.035,
+                           "fillcolor": c["ink"], "opacity": 0.85, "line": {"width": 0}})
+        _legend_key(fig, "NBER recession", c["ink"], 0.85)
+    fig.update_layout(shapes=shapes)
+    fig.update_yaxes(type="log", title_text="S&P 500, indexed (log scale)", showgrid=False)
+    fig.update_xaxes(showgrid=False, rangeslider={"visible": True, "thickness": 0.07},
+                     rangeselector={"buttons": [{"count": 2, "label": "2y", "step": "year", "stepmode": "backward"},
+                                                {"count": 5, "label": "5y", "step": "year", "stepmode": "backward"},
+                                                {"count": 10, "label": "10y", "step": "year", "stepmode": "backward"},
+                                                {"step": "all", "label": "All"}],
+                                    "bgcolor": "rgba(0,0,0,0)", "activecolor": c["grid"], "font": {"color": c["ink_2"]}, "y": 1.12})
+    fig = theme.style(fig, c, height=460)
+    return fig.update_layout(margin={"t": 70}, legend={"y": 1.02, "x": 0.22})
+
+
+def regime_strips(regimes: pd.DataFrame, c: dict[str, Any]) -> go.Figure:
+    """Two rows on one calendar: the HMM's call and the VIX-threshold state, each day Calm or Volatile / low or high."""
+    f = regimes.dropna(subset=["vix_high"])
+    z = np.vstack([(f.vix_high == 1).to_numpy(dtype=float), (f.p_volatile > 0.5).to_numpy(dtype=float)])
+    text = np.vstack([np.where(z[0] == 1, "VIX high", "VIX low"), np.where(z[1] == 1, "Volatile", "Calm")])
+    fig = go.Figure(go.Heatmap(
+        x=f.index, y=["VIX threshold", "HMM"], z=z, text=text, zmin=0, zmax=1, showscale=False, ygap=8, opacity=0.8,
+        colorscale=[[0, c["calm"]], [1, c["volatile"]]], hovertemplate="%{x|%d %b %Y}<br>%{y}: %{text}<extra></extra>",
+    ))
+    _legend_key(fig, "Calm / VIX low", c["calm"])
+    _legend_key(fig, "Volatile / VIX high", c["volatile"])
+    fig.update_yaxes(showgrid=False)
+    fig.update_xaxes(showgrid=False)
+    return theme.style(fig, c, height=190)
+
+
+def fold_volatility(folds: pd.DataFrame, c: dict[str, Any]) -> go.Figure:
+    """Each monthly refit's estimate of the two states' volatility, annualised."""
+    fig = go.Figure()
+    for i, (name, color) in enumerate((("Calm", c["calm"]), ("Volatile", c["volatile"]))):
+        fig.add_trace(go.Scatter(x=folds.apply_start, y=folds[f"vol_{i}"] * np.sqrt(252), mode="lines", name=f"{name} state",
+                                 line={"color": color, "width": 2}, hovertemplate=f"{name}, fold applied from %{{x|%b %Y}}<br>%{{y:.1%}} a year<extra></extra>"))
+    fig.update_yaxes(tickformat=".0%", title_text="state volatility, annualised", rangemode="tozero")
+    fig.update_xaxes(title_text="month the refit model was applied to")
+    return theme.style(fig, c, height=320)
+
+
+def k_selection(table: pd.DataFrame, margin: float, c: dict[str, Any]) -> go.Figure:
+    """Validation log-likelihood and BIC for each number of states; K values whose fits were degenerate are greyed."""
+    usable = table.restarts_degenerate < table.restarts
+    colors = [c["accent"] if s else (c["ink_2"] if u else c["context"]) for s, u in zip(table.selected, usable)]
+    fig = make_subplots(rows=1, cols=2, horizontal_spacing=0.12,
+                        subplot_titles=["Validation log-likelihood (higher is better)", "BIC (lower is better)"])
+    for col, (column, fmt) in enumerate((("val_loglik", ".2f"), ("bic", ",.0f")), start=1):
+        fig.add_trace(go.Bar(x=table.k, y=table[column], marker={"color": colors, "line": {"width": 0}}, width=0.45, showlegend=False,
+                             text=[f"{v:{fmt}}" for v in table[column]], textposition="outside", cliponaxis=False,
+                             textfont={"color": c["ink_2"], "size": 11}, hovertemplate=f"K = %{{x}}<br>%{{y:{fmt}}}<extra></extra>"),
+                      row=1, col=col)
+        lo, hi = float(table[column].min()), float(table[column].max())
+        pad = (hi - lo) * 0.35
+        fig.update_yaxes(range=[lo - pad, hi + pad], row=1, col=col)
+    _legend_key(fig, "Selected", c["accent"])
+    _legend_key(fig, "Usable, not selected", c["ink_2"])
+    _legend_key(fig, "Every restart degenerate: discarded", c["context"])
+    fig.update_xaxes(title_text="number of states, K", tickvals=list(table.k))
+    fig.update_annotations(font={"size": 13, "color": c["ink_2"]})
+    fig = theme.style(fig, c, height=330)
+    return fig.update_layout(margin={"t": 70}, legend={"y": 1.16})
+
+
+# --------------------------------------------------------------------------- latent map (page 5)
+def latent_map(points: pd.DataFrame, c: dict[str, Any]) -> go.Figure:
+    """One encoder fold's latents on its own two principal components, coloured by P(Volatile); play to move through the year."""
+    months = sorted(points.index.to_period("M").unique())
+    marker = {"size": 8, "colorscale": theme.regime_scale(c), "cmin": 0, "cmax": 1, "line": {"color": c["surface"], "width": 1},
+              "colorbar": {"title": {"text": "P(Volatile)", "side": "right"}, "thickness": 12, "len": 0.8, "tickvals": [0, 0.5, 1],
+                           "ticktext": ["0 Calm", "0.5", "1 Volatile"]}}
+
+    def trace(upto) -> go.Scatter:  # noqa: ANN001
+        shown = points[points.index.to_period("M") <= upto]
+        return go.Scatter(x=shown.pc1, y=shown.pc2, mode="markers", marker={**marker, "color": shown.p_volatile},
+                          customdata=np.stack([shown.index.strftime("%d %b %Y"), shown.p_volatile], axis=1),
+                          hovertemplate="%{customdata[0]}<br>P(Volatile) %{customdata[1]:.2f}<extra></extra>", showlegend=False)
+
+    fig = go.Figure(trace(months[-1]))
+    fig.frames = [go.Frame(data=[trace(m)], name=str(m)) for m in months]
+    pad_x, pad_y = (points.pc1.max() - points.pc1.min()) * 0.06, (points.pc2.max() - points.pc2.min()) * 0.06
+    fig.update_xaxes(range=[points.pc1.min() - pad_x, points.pc1.max() + pad_x], title_text="first principal component of this year's latents")
+    fig.update_yaxes(range=[points.pc2.min() - pad_y, points.pc2.max() + pad_y], title_text="second principal component")
+    fig = theme.style(fig, c, height=470, legend=False)
+    return fig.update_layout(
+        margin={"b": 90},
+        updatemenus=[{"type": "buttons", "showactive": False, "x": 0, "y": -0.2, "xanchor": "left", "direction": "left",
+                      "bgcolor": "rgba(0,0,0,0)", "font": {"color": c["ink_2"]},
+                      "buttons": [{"label": "▶ Play", "method": "animate",
+                                   "args": [None, {"frame": {"duration": 450, "redraw": True}, "fromcurrent": False, "transition": {"duration": 0}}]},
+                                  {"label": "Pause", "method": "animate",
+                                   "args": [[None], {"frame": {"duration": 0, "redraw": False}, "mode": "immediate"}]}]}],
+        sliders=[{"active": len(months) - 1, "x": 0.16, "len": 0.84, "y": -0.16, "currentvalue": {"prefix": "through ", "xanchor": "right", "font": {"color": c["ink_2"]}},
+                  "font": {"color": c["muted"]},
+                  "steps": [{"label": m.strftime("%b"), "method": "animate",
+                             "args": [[str(m)], {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"}]} for m in months]}],
+    )

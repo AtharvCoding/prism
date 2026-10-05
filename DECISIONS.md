@@ -1396,3 +1396,20 @@ It takes about seven minutes, adds one line to `reports/logs/holdout_access.json
 parse; one series over tolerance, a NaN or another index fails the replay; the recorded weights are valid (sum to one, cap, start in cash, turnover consistent) and equal what the stored
 evaluation summarised; fold parameters map to return units; on a synthetic walk-forward the persisted last fold reproduces the stored states, continuing the filter equals filtering the whole
 history, the forward passes do not read the future, and a changed file or parameter is refused.
+
+### D-048 · Dashboard D3: the Regimes and LSTM latent pages
+**Date:** 2026-10-06 · **Status:** implemented; milestone D3 of DASHBOARD.md §8 · choices mine
+
+Both pages read the `derived` and `folds-test` artifacts (D-047); no model runs on them. Acceptance: the agreement rate is recomputed from `regimes/daily.parquet` by a test and equals the
+stored summary, whose VIX states were checked equal to the C2 state file at build time; `regimes/k_selection.csv` is the parsed table of `reports/tables/hmm_k_selection_H1.md`, asserted equal.
+
+1. **Shading is drawn as layout shapes, one per run of days** (about 330), on a log-scale S&P 500 index with Plotly's range slider and selector; the first fit window is grey. Days are shaded from
+   2007-01-03, when the walk-forward posteriors begin; the VIX-threshold state begins with the state files (2007-05-09), so the agreement rate is counted from there.
+2. **"Current" P(Volatile), the transition matrix and the dwell times are the last stored ones**, labelled with their dates: the last stored day (2026-09-30) and the latest fold whose parameters
+   exist (fold 203 until the gated replay adds folds 204-236, which the page says). A live gauge is D5.
+3. **The overlay is two strips on one calendar plus a per-window table of the four day counts.** The text states the one-sided disagreement (D-047 item 7) and calls the overlap "the likeliest
+   reason" the HMM added nothing, not a demonstrated cause: no analysis here establishes causation.
+4. **K selection is two panels (validation log-likelihood, BIC), not one chart with two axes**; K values whose every restart was degenerate are greyed. The 1.52-point margin and the 2.0-point
+   tie rule are computed from the table and the config.
+5. **Latent map**: a year selector over the 20 encoder folds, defaulting to the latest recession year; within a year, Plotly animation frames by month. Colour is the diverging Calm-grey-Volatile
+   scale on P(Volatile). An information box says positions are not comparable between years. The crisis tags on the selector come from the NBER file and the stored SPY drawdown episodes.

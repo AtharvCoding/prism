@@ -59,7 +59,7 @@ def test_the_page_renders_with_its_title_takeaway_and_how_to_read(rendered, page
     at = rendered[page.key]
     assert not at.exception and not at.error
     assert [t.value for t in at.title] == [page.title]
-    takeaway = ui.takeaway_text(page.key, dd_facts())
+    takeaway = ui.takeaway_text(page.key)
     assert "{" not in takeaway and f"**{takeaway}**" in [m.value for m in at.markdown]
     assert ui.HOW_TO_READ in [e.label for e in at.expander]
 
@@ -237,3 +237,59 @@ def test_no_chart_text_uses_forbidden_wording():
     for fig in figs:
         assert not FORBIDDEN.search(fig.to_json())
     assert len(charts.cost_lines(res["cost_sensitivity"], c).data) == 10       # six benchmarks in grey, four variants
+
+
+# --------------------------------------------------------------------------- D3: regimes and latent
+def test_the_regimes_page_shows_the_stored_agreement_and_the_latest_stored_fold(rendered):
+    import json
+
+    import pandas as pd
+
+    at = rendered["regimes"]
+    summary = json.loads((ARTIFACTS / "regimes" / "summary.json").read_text())["agreement"]
+    metrics = {m.label: m.value for m in at.metric}
+    assert metrics["Days the two agree"] == ui.pct(summary["all"]["agreement"], 1)
+    table = next(t.value for t in at.table if "Agree" in t.value.columns)
+    assert table.Period.tolist() == ["Train", "Validation", "Test", "Holdout", "All days"]
+    assert table.Agree.tolist() == [ui.pct(summary[k]["agreement"], 1) for k in ("train", "val", "test", "holdout", "all")]
+    folds = pd.read_csv(ARTIFACTS / "regimes" / "hmm_folds_test.csv")
+    last = folds.iloc[-1]
+    matrix = next(t.value for t in at.table if "to Volatile" in t.value.columns)
+    assert matrix.to_numpy().tolist() == [[last.p_00, last.p_01], [last.p_10, last.p_11]]
+    assert metrics["Expected stay in Calm"] == f"{last.dwell_0:.0f} trading days"
+    assert "Why two states?" in [e.label for e in at.expander]
+    text = " ".join(m.value for m in at.markdown)
+    assert "K = 3 scored 1.52 points higher" in text and "K = 2 has the better BIC" in text
+
+
+def test_the_latent_page_states_that_years_are_not_comparable_and_reports_the_tier_1_control(rendered):
+    at = rendered["latent"]
+    assert any("Positions are not comparable between years" in i.value for i in at.info)
+    text = " ".join(m.value for m in at.markdown)
+    assert "reliably better\non **1/4** and reliably worse on **0/4**" not in text      # the stored row is 1/4 favourable, 1/4 adverse
+    assert "**1/4** and reliably worse on **1/4**" in text and "**failed**" in text
+    at.select_slider[0].set_value(2022).run()
+    assert not at.exception and any("trading day of 2022" in c.value for c in at.caption)
+
+
+@pytest.mark.parametrize("mode", ["light", "dark"])
+def test_the_regime_charts_shade_each_day_once_and_never_use_forbidden_wording(mode):
+    import pandas as pd
+
+    c = theme.palette(mode)
+    regimes = pd.read_parquet(ARTIFACTS / "regimes" / "daily.parquet")
+    spy = pd.read_parquet(ARTIFACTS / "regimes" / "spy.parquet")["spy_index"]
+    f = dd_facts()
+    fig = charts.regime_price(spy, regimes, f["universe"]["fit_early"], None, c)
+    runs = charts._runs(regimes.p_volatile > 0.5)
+    assert sum((b - a).days + 1 for a, b, _ in runs) >= len(regimes) and len(fig.layout.shapes) == len(runs) + 1
+    assert all(x[2] != y[2] and x[1] < y[0] for x, y in zip(runs, runs[1:]))          # runs alternate and do not overlap
+    strips = charts.regime_strips(regimes, c)
+    assert strips.data[0].z.shape == (2, regimes.vix_high.notna().sum())
+    coords = pd.read_parquet(ARTIFACTS / "latents" / "pca.parquet")
+    one = coords[coords.fold == coords.fold.max()]
+    lm = charts.latent_map(one, c)
+    assert len(lm.frames) == one.index.to_period("M").nunique() and len(lm.data[0].x) == len(one)
+    for figure in (fig, strips, lm, charts.fold_volatility(pd.read_csv(ARTIFACTS / "regimes" / "hmm_folds_test.csv", parse_dates=["apply_start"]), c),
+                   charts.k_selection(pd.read_csv(ARTIFACTS / "regimes" / "k_selection.csv"), 2.0, c)):
+        assert not FORBIDDEN.search(figure.to_json())
