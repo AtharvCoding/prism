@@ -156,3 +156,46 @@ about Tier 2. Whatever the result, the project's conclusion is the one these pre
 ## Amendments
 
 *(none)*
+
+### Amendment 1 — 2026-10-06 · Descriptive replay of the frozen agents for the dashboard; no second evaluation
+
+**Holdout output seen at this point: yes, all of it.** The holdout was evaluated once, on 2026-10-05 (the single entry in
+`reports/logs/holdout_access.jsonl`), and the result is known and reported: all three comparisons fail, the Tier 2 null is
+replicated (`reports/final_report.md`; DECISIONS.md "Gate decisions (holdout)"). This amendment is written with that
+knowledge. It changes no result and no choice, and it adds no statistic, test or decision.
+
+**What is added.** A dashboard (`DASHBOARD.md`) displays the stored results and demonstrates the frozen system. Two things it
+shows were never stored and need holdout-period rows to be read again:
+
+1. **A one-off descriptive replay.** The 40 frozen agents (the checkpoints pinned in section 1) and the six benchmarks are run
+   again, deterministically, through the same environment on the same holdout window, **solely to record what they held**: each
+   week's target weights, the weights drifted to the execution close, turnover and cost. The same run re-runs the extended
+   walk-forward of section 2 to persist model parameters that steps 2-3 never stored: every fold's HMM parameters, and the last
+   fold's HMM, encoder, VIX-threshold breakpoints and scalers.
+   * It goes through the same two keys as the evaluation (`final_holdout=True` and `PRISM_ALLOW_HOLDOUT=1`) and an explicit flag,
+     is typed by hand by the principal investigator, and is logged in `reports/logs/holdout_access.jsonl` with its reason.
+   * **Hard gates, checked before anything is written:** the extended states must equal the stored `states/{V1,V2,V4,C4}.parquet`
+     up to 2023-12-31 and the stored `data/processed/holdout/states_extended.parquet` on every row, to 1e-9; and every replayed
+     daily net return series (40 agents and 6 benchmarks, at 0, 5, 10 and 20 bps) must equal its column of
+     `data/processed/holdout/eval_daily.parquet` to 1e-9. If either fails the run aborts and records nothing; there is no
+     widened tolerance.
+   * Because the policies, inputs and environment are identical and deterministic, the returns are the stored ones. Nothing is
+     written to `data/processed/holdout/`; `eval_done.json` and every stored table are untouched; no metric, interval, test or
+     gate is recomputed from the replay.
+2. **The live demonstration re-reads holdout-period inputs.** To show the frozen system on data after 2026-09-30, the
+   dashboard continues the *same* episode: it re-runs each agent from cash at the holdout's first decision and steps forward
+   through the present, with the last-fold models frozen (no refit). Every refresh therefore reads holdout-period prices,
+   features and states again. This is outside the two-key gate by construction (sessions after the holdout's end belong to no
+   split, so the environment arrays are built directly) and is **not** logged per refresh. It is descriptive: the live view
+   reports weights, never a performance statistic for the holdout period, and it is labelled on every page as a demonstration
+   of a frozen system and not as a recommendation.
+
+**What is unchanged.** Sections 1-6 stand as written. The holdout has been evaluated exactly once and is not evaluated again:
+"evaluated" means producing a result that is compared, tested or reported, and nothing here does. Nothing about the agents,
+their configurations, their checkpoints, the cost model, the metrics or the gate rule changes. The holdout remains spent: it
+cannot be used to select, tune or judge anything, and any new candidate needs fresh data and its own pre-registration.
+
+**Code.** `src/prism/holdout.py` gains output fields that expose objects it already computed (the two walk-forward results, the
+train-split scaler, the Universe A features); no computed value changes, and the 1e-9 gates above are the evidence.
+`src/prism/env/`, `src/prism/agents/` and `src/prism/analysis/tier2.py` are not edited. The replay is
+`scripts/10_dashboard_data.py --stage holdout-replay`; decisions are in DECISIONS.md D-043 to D-047.
