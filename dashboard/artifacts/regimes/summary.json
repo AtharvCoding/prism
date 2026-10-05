@@ -1,0 +1,84 @@
+{
+ "agreement": {
+  "all": {
+   "agreement": 0.8081967213114755,
+   "both_calm": 2678,
+   "both_volatile": 1266,
+   "days": 4880,
+   "end": "2026-09-30",
+   "hmm_only": 93,
+   "hmm_volatile_share": 0.27848360655737703,
+   "start": "2007-05-09",
+   "vix_high_share": 0.432172131147541,
+   "vix_only": 843
+  },
+  "holdout": {
+   "agreement": 0.7285921625544267,
+   "both_calm": 430,
+   "both_volatile": 72,
+   "days": 689,
+   "end": "2026-09-30",
+   "hmm_only": 23,
+   "hmm_volatile_share": 0.1378809869375907,
+   "start": "2024-01-02",
+   "vix_high_share": 0.34252539912917274,
+   "vix_only": 164
+  },
+  "test": {
+   "agreement": 0.7031630170316302,
+   "both_calm": 448,
+   "both_volatile": 419,
+   "days": 1233,
+   "end": "2023-11-22",
+   "hmm_only": 17,
+   "hmm_volatile_share": 0.35360908353609083,
+   "start": "2019-01-02",
+   "vix_high_share": 0.6228710462287105,
+   "vix_only": 349
+  },
+  "train": {
+   "agreement": 0.86676703048551,
+   "both_calm": 1598,
+   "both_volatile": 705,
+   "days": 2657,
+   "end": "2017-11-22",
+   "hmm_only": 46,
+   "hmm_volatile_share": 0.2826496048174633,
+   "start": "2007-05-09",
+   "vix_high_share": 0.3812570568310124,
+   "vix_only": 308
+  },
+  "val": {
+   "agreement": 0.8805309734513275,
+   "both_calm": 152,
+   "both_volatile": 47,
+   "days": 226,
+   "end": "2018-11-21",
+   "hmm_only": 6,
+   "hmm_volatile_share": 0.2345132743362832,
+   "start": "2018-01-02",
+   "vix_high_share": 0.3008849557522124,
+   "vix_only": 21
+  }
+ },
+ "checks": {
+  "posterior_days_checked": 4191,
+  "posteriors_max_abs_diff": 2.1492918556020868e-11,
+  "vix_days_checked": 4191,
+  "vix_state_equals_C2": true
+ },
+ "nber_recessions": {
+  "covid": {
+   "peak": "2020-02-01",
+   "trough": "2020-04-01"
+  },
+  "dot_com": {
+   "peak": "2001-03-01",
+   "trough": "2001-11-01"
+  },
+  "gfc": {
+   "peak": "2007-12-01",
+   "trough": "2009-06-01"
+  }
+ }
+}

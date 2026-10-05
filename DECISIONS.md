@@ -1346,3 +1346,53 @@ is absent, as `test_holdout.py` already does for gymnasium). They cover: copies 
 renders with title, takeaway and "How to read this", in under 1 s from cache (measured 0.01 to 0.06 s; cold start 1.1 s); the stored-results and holdout-spent badges on every page;
 the forbidden-wording list of §6 over page text and chart text; the permanent weights caption exactly where a page shows weights (none yet); the Results tables equal the report's rows;
 the sign-flip sentence; the Tier 1 V4-vs-V2 pass is shown (D-044 item 5). Suite: 442 passed with the dashboard group installed (385 before).
+
+### D-047 · Dashboard D2: Amendment 1, the replay, fold parameters and the frozen models; what is and is not gated
+**Date:** 2026-10-06 · **Decided by:** principal investigator (work on through the milestones and decide; the holdout replay stays theirs to run); the choices below are mine · **Status:** ungated stages run and verified; **the gated holdout stage has NOT been run**
+
+**Amendment 1** was appended to `reports/tables/preregistration_holdout.md` and committed alone (`c14c9f4`) before any replay code existed. It covers the one-off descriptive replay and the
+live demo's re-read of holdout-period inputs (D-044 items 1-2), states that all holdout output had been seen, and fixes the 1e-9 gates. The 46 pinned hashes still parse.
+
+**Stages of `scripts/10_dashboard_data.py`.** `stored`, `derived`, `replay-test`, `folds-test` are not gated and are what `make dashboard-data` runs; none reads a holdout row from the raw
+data. `holdout-replay` is gated: it checks `--i-am-sure` and `PRISM_ALLOW_HOLDOUT=1` before reading any file, then that the amendment is committed and unmodified and all 46 pinned files match,
+logs the access through `load_holdout`, and writes only under `dashboard/artifacts/` and `data/live/`. The command, to be typed by hand:
+
+    PRISM_ALLOW_HOLDOUT=1 .venv/bin/python scripts/10_dashboard_data.py --stage holdout-replay --i-am-sure
+
+It takes about seven minutes, adds one line to `reports/logs/holdout_access.jsonl`, and writes `weights/holdout_*.parquet`, `regimes/hmm_folds_holdout.csv`, `live/models_manifest.json`,
+`live/models_check.json` and `data/live/models/`. **The same code path was run on the test split, which is its rehearsal** (below); only the window differs.
+
+**Results of the ungated stages (2026-10-06).**
+* `replay-test`: all 184 daily series (40 agents and 6 benchmarks at 0/5/10/20 bps) equal `data/processed/tier2/eval_daily.parquet` with maximum difference 0.0; the mean weights and
+  turnover equal those `eval_done.json` recorded. 255 decisions, 2019-01-04 to 2023-11-17. Weekly target weights, pre-trade (drifted to the execution close) weights, turnover and cost are in
+  `weights/test_agents.parquet`; the benchmarks' targets in `weights/test_benchmarks.parquet`.
+* `folds-test`: the walk-forward re-run to 2023-12-31 reproduces the four stored state files (V1, V2, C4 exactly; V4 to 1.8e-11); 204 HMM folds' parameters in return units in
+  `regimes/hmm_folds_test.csv`. Rehearsal of the frozen models (HMM fold 203, encoder fold 16, written to `data/live/models_rehearsal/`): from the persisted parameters alone they reproduce the
+  stored states on their own apply windows to 1.1e-12 (HMM), exactly (encoder, threshold, state scaler).
+* `derived`: per-seed deflated Sharpe (medians, minima and counts equal `dsr.csv`); 46 equity curves per window end at the stored annualised return; the regime series equal
+  `hmm_posteriors.parquet` (2.1e-11) and the C2 states (exactly); the latent series equal `encoder_latents.parquet` exactly.
+
+**Choices.**
+1. **`holdout.py` gains four output fields** on `ExtendedStates` (the two walk-forward results, the train-split scaler, the Universe-A features), resolving D-044 item 7. Additive; no value
+   computed changes, and the re-run reproducing the stored states is the evidence. Alternative: repeat its sixty lines in the precompute; rejected as two copies of the pipeline that could drift.
+2. **Replay inputs are the stored ones**: the Tier 2 state files for the test split, `states_extended.parquet` for the holdout, each the exact frame the stored evaluation ran on. The fresh
+   walk-forward is used for its fold objects and must match those frames to 1e-9.
+3. **Pre-trade weights are captured through the environment's public `drifted_weights`**, by a recording wrapper around the policy; no environment or agent code is edited.
+4. **The frozen models are plain data**: `models.json` (HMM parameters in canonical order, its filter state at the fold's last day, the three scalers, the threshold edges, the encoder's
+   architecture) and `encoder.npz` (weights), both hashed in a manifest whose copy is committed. No pickle. `prism.live` rebuilds a `GaussianHMM` and the encoder from them and reuses
+   `filtered_posteriors` and `compute_latents`.
+5. **The live encoder runs the fold's whole fit window through as well as the new rows.** Encoding only the last windows is the same arithmetic in different float32 batches and differed from
+   the stored latents by 3e-8, above the 1e-9 gate; batching as the walk-forward did reproduces them exactly. Found by the synthetic test.
+6. **The latent map is one PCA per encoder fold** (D-044 item 8). The page shows a year at a time and says that years are not comparable.
+7. **The HMM-versus-VIX agreement is a count, reported by window, and it is lower than DASHBOARD.md §7 implies.** The HMM's call (P(Volatile) > 0.5) and the VIX-threshold state agree on 80.8% of
+   days overall: 86.7% on train, 88.1% on validation, 70.3% on test, 72.9% on the holdout. The disagreement is one-sided: when the HMM says Volatile the VIX is high 93% of the time (1266 of 1359
+   days), but the threshold says "high" far more often (43% of days against 28%). The page says this and does not call the two "largely the same thing" without the numbers.
+8. **The SPY price line** is the snapshot's adjusted close to the test split's end joined to the stored holdout SPY series, indexed to 100 (`regimes/spy.parquet`, about 7 000 values). It is a
+   derived extract of the raw snapshot committed for display; nothing else from the snapshot is.
+9. **File layout.** The model stages are in `src/prism/dashboard_replay.py` (heavy imports), the model forward passes in `src/prism/live.py`, the stored and derived stages in
+   `src/prism/dashboard_data.py`, which the pages import and which therefore stays light. `data/live/` is gitignored.
+
+**Tests** (`tests/test_dashboard_replay.py`, 16, plus 8 more in `test_dashboard_data.py`): the gated stage refuses without either key and logs nothing; the amendment is appended and the hashes
+parse; one series over tolerance, a NaN or another index fails the replay; the recorded weights are valid (sum to one, cap, start in cash, turnover consistent) and equal what the stored
+evaluation summarised; fold parameters map to return units; on a synthetic walk-forward the persisted last fold reproduces the stored states, continuing the filter equals filtering the whole
+history, the forward passes do not read the future, and a changed file or parameter is refused.

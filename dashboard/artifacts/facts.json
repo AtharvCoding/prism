@@ -109,12 +109,19 @@
   "encoder": {
    "hidden_dim": 64,
    "latent_dim": 32,
+   "refit_cadence": "annual",
    "variant": "DAE",
    "window": 10
   },
   "hmm": {
    "folds_through_test": 204,
    "k": 2,
+   "min_expected_duration_days": 5.0,
+   "near_tie_margin": 2.0,
+   "observations": [
+    "SPY_return_1d"
+   ],
+   "refit_cadence": "monthly",
    "specification": "H1"
   }
  },

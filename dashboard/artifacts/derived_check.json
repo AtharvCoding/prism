@@ -1,0 +1,15 @@
+{
+ "holdout_equity_curves": 46,
+ "latents": {
+  "days_checked": 4191,
+  "folds": 20,
+  "max_abs_diff": 0.0
+ },
+ "regimes": {
+  "posterior_days_checked": 4191,
+  "posteriors_max_abs_diff": 2.1492918556020868e-11,
+  "vix_days_checked": 4191,
+  "vix_state_equals_C2": true
+ },
+ "test_equity_curves": 46
+}

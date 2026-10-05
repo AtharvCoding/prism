@@ -99,7 +99,7 @@ dashboard-install:  ## Dashboard: add the pinned streamlit/plotly group to the e
 dashboard-verify-frozen:  ## Dashboard: check every frozen data file against the D0 SHA-256 baseline
 	shasum -a 256 -c --quiet dashboard/frozen_sources.sha256 && echo "frozen files match the baseline"
 
-dashboard-data: dashboard-verify-frozen  ## Dashboard: rebuild dashboard/artifacts from the stored results (never opens the holdout)
+dashboard-data: dashboard-verify-frozen  ## Dashboard: rebuild dashboard/artifacts, every stage that is not gated (about 8 minutes; never opens the holdout)
 	$(PYTHON) scripts/10_dashboard_data.py
 
 dashboard-check:  ## Dashboard: verify the committed artifacts against their manifest and the final report

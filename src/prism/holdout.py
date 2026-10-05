@@ -55,6 +55,12 @@ class ExtendedStates:
     latents: pd.DataFrame
     close: pd.DataFrame
     timings: dict[str, float]
+    # Objects the run already computed, exposed for the dashboard's precompute (preregistration_holdout.md
+    # Amendment 1; DECISIONS.md D-047). They add outputs only: no computed value depends on them.
+    hmm: object | None = None           # the HMM WalkforwardResult (per-fold models, scalers, orders)
+    encoder: object | None = None       # the EncoderWalkforwardResult (per-fold models, scalers)
+    scaler: FeatureScaler | None = None  # the Universe-B train-split scaler used by state assembly
+    features_a: pd.DataFrame | None = None  # the pruned Universe-A features the HMM and encoder read
 
 
 def _prune(cfg: Config, fs: FeatureSet, universe: str, end: pd.Timestamp) -> pd.DataFrame:
@@ -151,7 +157,8 @@ def build_extended_states(cfg: Config, end: str | pd.Timestamp, *, raw: pd.DataF
     _log.info("extended states through %s: %s (timings %s)", end.date(), {v: f.shape for v, f in states.items()},
               {k_: round(v_) for k_, v_ in timings.items()})
     return ExtendedStates(end=end, states=states, posteriors=wf.posteriors, latents=ewf.latents,
-                          close=close.loc[:end], timings=timings)
+                          close=close.loc[:end], timings=timings, hmm=wf, encoder=ewf, scaler=scaler,
+                          features_a=features_a)
 
 
 def replay_check(cfg: Config, ext: ExtendedStates, *, up_to: str | pd.Timestamp, atol: float) -> dict[str, object]:
