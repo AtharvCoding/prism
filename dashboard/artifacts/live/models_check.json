@@ -1,0 +1,80 @@
+{
+ "reproduce": {
+  "atol": 1e-09,
+  "encoder": {
+   "max_abs_diff": 0.0,
+   "rows": 187,
+   "window": [
+    "2026-01-02",
+    "2026-09-30"
+   ]
+  },
+  "hmm": {
+   "carry_matches": true,
+   "max_abs_diff": 1.7374851557505622e-12,
+   "rows": 21,
+   "window": [
+    "2026-09-01",
+    "2026-09-30"
+   ]
+  },
+  "ok": true,
+  "state_scaler": {
+   "max_abs_diff": 0.0,
+   "rows": 4880
+  },
+  "threshold": {
+   "max_abs_diff": 0.0,
+   "rows": 21
+  }
+ },
+ "tier2_states": {
+  "C4": {
+   "max_abs_diff": 0.0,
+   "rows": 4191,
+   "same_index_and_columns": true
+  },
+  "V1": {
+   "max_abs_diff": 0.0,
+   "rows": 4191,
+   "same_index_and_columns": true
+  },
+  "V2": {
+   "max_abs_diff": 0.0,
+   "rows": 4191,
+   "same_index_and_columns": true
+  },
+  "V4": {
+   "max_abs_diff": 2.8120561434974434e-11,
+   "rows": 4191,
+   "same_index_and_columns": true
+  }
+ },
+ "walkforward": {
+  "atol": 1e-09,
+  "end": "2026-09-30",
+  "ok": true,
+  "variants": {
+   "C4": {
+    "max_abs_diff": 0.0,
+    "rows": 4880,
+    "same_index_and_columns": true
+   },
+   "V1": {
+    "max_abs_diff": 0.0,
+    "rows": 4880,
+    "same_index_and_columns": true
+   },
+   "V2": {
+    "max_abs_diff": 0.0,
+    "rows": 4880,
+    "same_index_and_columns": true
+   },
+   "V4": {
+    "max_abs_diff": 2.8120561434974434e-11,
+    "rows": 4880,
+    "same_index_and_columns": true
+   }
+  }
+ }
+}

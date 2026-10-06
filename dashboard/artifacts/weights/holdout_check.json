@@ -1,0 +1,13 @@
+{
+ "agents": 40,
+ "atol": 1e-09,
+ "decisions": 143,
+ "first_decision": "2024-01-05",
+ "first_return_day": "2024-01-09",
+ "last_decision": "2026-09-25",
+ "last_return_day": "2026-09-30",
+ "max_abs_diff": 0.0,
+ "ok": true,
+ "series": 184,
+ "split": "holdout"
+}

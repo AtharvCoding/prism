@@ -1,0 +1,21 @@
+{
+ "encoder": {
+  "apply_end": "2026-09-30",
+  "apply_start": "2026-01-02",
+  "fit_end": "2025-11-24",
+  "fit_start": "1999-01-04",
+  "fold": 19
+ },
+ "end": "2026-09-30",
+ "files": {
+  "encoder.npz": "c82f8026f24d5c4aa3b97d80b37b1200e6f38fcd9ea9f1a344aa60945cf19718",
+  "models.json": "2201c3a2ef8911419e6da261937907af90b74571581cbbddcb3017e558fd7d67"
+ },
+ "hmm": {
+  "apply_end": "2026-09-30",
+  "apply_start": "2026-09-01",
+  "fit_end": "2026-07-27",
+  "fit_start": "1999-01-04",
+  "fold": 236
+ }
+}

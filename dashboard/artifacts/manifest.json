@@ -127,6 +127,14 @@
    "kind": "check",
    "sha256": "0ab1cac93d77f93f24f8203f8da87d28943da1ebe7a3b4d3604a16f3c36cecca"
   },
+  "live/models_check.json": {
+   "kind": "check",
+   "sha256": "29ba3ee3b35602ba0d254730595da6e0d406bec6539b757775b4fe4e37c6ec23"
+  },
+  "live/models_manifest.json": {
+   "kind": "manifest",
+   "sha256": "efd15092d0e606463fee8ed045bccbab63f80386800daa318ed447a27d6025a2"
+  },
   "live/refresh_rehearsal.json": {
    "kind": "check",
    "sha256": "c7ed5740fc730ef69d25ce684d3f5bf4d41bf65583e7b445719125c7ed9ed0d0"
@@ -138,6 +146,11 @@
   "regimes/daily.parquet": {
    "kind": "derived",
    "sha256": "b3c0433dfb2d4e79e36c6bdfaf9255b9154ebdfcf0c1c5095205f78281561bd9"
+  },
+  "regimes/hmm_folds_holdout.csv": {
+   "kind": "derived",
+   "sha256": "19d2aafbbf093b1f64a9ab74e15ddbb7dbf74aaf194d7bdca2769772326681c2",
+   "folds": 33
   },
   "regimes/hmm_folds_test.csv": {
    "kind": "derived",
@@ -282,6 +295,22 @@
    "n_sources": 40,
    "sources_hash": "4b891c7ca1a1dcedce3dd650373fe6f44ed1d70d040519fa9604242d34f398af"
   },
+  "weights/holdout_agents.parquet": {
+   "kind": "replay",
+   "sha256": "8c908088b4f76dd3493a15f8637f6edd5de2b235f9363e50cec4f45280dbb75f"
+  },
+  "weights/holdout_benchmarks.parquet": {
+   "kind": "replay",
+   "sha256": "ddef3e4a17cae4e877b7e391787af825cb31a3f8b7b3beb11515359c01de5327"
+  },
+  "weights/holdout_check.json": {
+   "kind": "check",
+   "sha256": "1d8f38999f6856df39dd50ec50b018cf6c28e03b6f257704a36fd6cea621af9a"
+  },
+  "weights/holdout_last_observations.json": {
+   "kind": "replay",
+   "sha256": "7df156423fb3cfed810c05d40daa562f8081177146efafa8f19f671d7e1acc66"
+  },
   "weights/test_agents.parquet": {
    "kind": "replay",
    "sha256": "f339424175eaad516bf863cb50fd5fec9ad0e8722df4159b4a0644c1c0f0b3a8"
@@ -299,5 +328,5 @@
    "sha256": "30833eef612ade3011746f0cb92f975d69618ccc3bf4e686eee792544069bf91"
   }
  },
- "hash": "0ad7c12a4d30b6dcd75ea88effcf88c7039628391310a254c9a257431875570b"
+ "hash": "d24db2574f51abf7ce783b9f338c68eb320dd0f4628c2737e2281e49e07aa4d9"
 }
