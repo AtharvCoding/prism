@@ -81,7 +81,10 @@ def view() -> dict[str, Any]:
 def refresh_now() -> None:
     """Run one refresh. On failure keep the cached result and record why, for the badge."""
     try:
-        live.refresh(_config(), data.ROOT, now=pd.Timestamp.now(tz="UTC"), expected_manifest=data.live_models_manifest(), policies=policies())
+        window = data.weight_windows()[-1]
+        recorded = pd.read_parquet(data.ARTIFACTS / "weights" / f"{window}_agents.parquet") if window == "holdout" else None
+        live.refresh(_config(), data.ROOT, now=pd.Timestamp.now(tz="UTC"), expected_manifest=data.live_models_manifest(), policies=policies(),
+                     recorded=recorded)
         st.session_state["live_status"], st.session_state["live_message"] = "live", None
     except live.SeamError as exc:
         st.session_state["live_status"], st.session_state["live_message"] = "seam-check-failed", str(exc)

@@ -54,7 +54,7 @@ results on it are exploratory; the holdout stays reserved for step 5.
 
 **Dashboard (`DASHBOARD.md`; DECISIONS.md D-043 to D-051).** A Streamlit app that explains the project end to end, shows the
 frozen system running, and reports the null result as it came out. See "Dashboard" below. With its dependency group installed the
-suite is `529 passed`.
+suite is `533 passed`.
 
 No skips and no xfails remain in the research suite: every spec §7 contract is a real test, and the
 environment, cost and state tests run on synthetic paths with hand-computed
@@ -154,13 +154,15 @@ PRISM_ALLOW_HOLDOUT=1 .venv/bin/python scripts/10_dashboard_data.py --stage hold
 ```
 
 About seven minutes. It aborts, writing nothing, unless the re-run states and all 184 replayed daily series equal the stored
-ones to 1e-9. Afterwards commit `dashboard/artifacts`. Until it is run, the allocation page stops at the end of the test split
-and the Live weights, Home and What-if pages show the last *recorded* decision, labelled as not live, with the Refresh button off.
+ones to 1e-9. **It was run on 2026-10-06** (all 184 series reproduced with difference 0.0; its artifacts are committed), so a
+checkout with the data has the full dashboard. In a checkout without `data/live/models/` the Live weights, Home and What-if
+pages show the last *recorded* decision, labelled as not live, with the Refresh button off.
 
 **Live view.** After the gated step, Refresh fetches the latest daily closes, joins them to the frozen snapshot only if the two
 agree over their last 60 common sessions, runs the frozen (never refitted) models forward, and continues each agent's episode
-from the holdout's first decision. A decision is taken at a week's last close; mid-week the page adds a labelled preview. If a
-refresh fails, the last good result stays up with a red badge. The weights are a demonstration of a frozen system, not a
+from the holdout's first decision, checking on the way that it re-derives all 143 recorded holdout decisions exactly. A decision
+is taken at a week's last close; mid-week the page adds a labelled preview. If a refresh fails, the last good result stays up
+with a red badge. A refresh takes about ten seconds. The weights are a demonstration of a frozen system, not a
 recommendation: the agents did not beat equal weight, 60/40 or risk parity after costs.
 
 Code: `dashboard/` (app, `views/`, `components/`, committed `artifacts/`), `src/prism/dashboard_data.py` (stored and derived

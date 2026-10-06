@@ -436,3 +436,43 @@ def test_the_live_path_was_verified_against_the_recorded_test_window():
     seen = json.loads((ARTIFACTS / "weights" / "test_last_observations.json").read_text())
     assert len(seen["observations"]) == 40 and {v: len(c) for v, c in seen["columns"].items()} == {"V1": 199, "V2": 231, "V4": 233, "C4": 233}
     assert seen["columns"]["V4"][216:218] == ["state_0", "state_1"] == seen["columns"]["C4"][216:218]
+
+
+def test_a_refresh_refuses_weights_whose_episode_does_not_contain_the_recorded_one(toy, cfg):
+    """Every refresh re-derives the recorded decisions on the way to the latest one; a mismatch stops it."""
+    policies = {("V1", 0): toy.policy}
+    friday = pd.Timestamp("2026-09-25")
+    recorded = live.rollout(cfg, toy.states, toy.close, toy.policy, start=toy.start, end=friday)["decisions"].assign(variant="V1", seed=0)
+    out = live.latest_weights(cfg, {"V1": toy.states}, toy.close, policies, start=toy.start, recorded=recorded)
+    assert out["recorded_max_abs_diff"] == 0.0
+    tampered = recorded.copy()
+    tampered.loc[tampered.index[10], "w_GLD"] += 1e-6
+    with pytest.raises(live.LiveModelError, match="differs from the recorded one"):
+        live.latest_weights(cfg, {"V1": toy.states}, toy.close, policies, start=toy.start, recorded=tampered)
+    with pytest.raises(live.LiveModelError, match="does not contain the recorded decisions"):
+        live.latest_weights(cfg, {"V1": toy.states}, toy.close, policies, start=toy.start, recorded=recorded.assign(seed=5))
+
+
+holdout_recorded = pytest.mark.skipif(not (ARTIFACTS / "weights" / "holdout_check.json").exists(),
+                                      reason="the gated holdout replay's artifacts are not in this checkout")
+
+
+@holdout_recorded
+def test_the_holdout_replay_reproduced_the_stored_evaluation_and_the_frozen_models_reproduce_the_states(cfg):
+    check = json.loads((ARTIFACTS / "weights" / "holdout_check.json").read_text())
+    meta = json.loads((ARTIFACTS / "holdout" / "eval_done.json").read_text())
+    assert check["ok"] and check["series"] == 184 and check["max_abs_diff"] <= dr.REPLAY_ATOL and check["agents"] == 40
+    assert (check["first_return_day"], check["last_return_day"]) == (meta["first"], meta["last"])
+    agents = pd.read_parquet(ARTIFACTS / "weights" / "holdout_agents.parquet")
+    assert agents.decision_date.nunique() == check["decisions"] and (agents[agents.decision_date == agents.decision_date.min()].p_CASH == 1.0).all()
+    for (v, s), g in agents.groupby(["variant", "seed"]):
+        assert g.turnover.mean() == pytest.approx(meta["turnover"][f"{v}|s{s}"], abs=1e-9)
+    models = json.loads((ARTIFACTS / "live" / "models_check.json").read_text())
+    manifest = json.loads((ARTIFACTS / "live" / "models_manifest.json").read_text())
+    assert all(v["max_abs_diff"] <= dr.REPLAY_ATOL for v in models["walkforward"]["variants"].values())
+    assert all(models["reproduce"][k]["max_abs_diff"] <= dr.REPLAY_ATOL and models["reproduce"][k]["rows"] > 0
+               for k in ("hmm", "encoder", "threshold", "state_scaler"))
+    assert manifest["end"] == meta["last"] and manifest["hmm"]["fit_end"] < manifest["hmm"]["apply_start"]
+    folds = pd.read_csv(ARTIFACTS / "regimes" / "hmm_folds_holdout.csv")
+    first = json.loads((ARTIFACTS / "facts.json").read_text())["models"]["hmm"]["folds_through_test"]
+    assert folds.fold.tolist() == list(range(first, manifest["hmm"]["fold"] + 1)) and (folds.vol_1 > folds.vol_0).all()

@@ -1498,3 +1498,26 @@ machine: first render of a page 0.1 to 0.6 s (What-if 1.7 s, loading the 40 agen
 
 **One thing a reader of the lab should know.** On the recorded observation of 2023-11-17 the ten V4 agents hold between 6.5% and 99.6% equity. That is in the recorded weights, not an artefact of
 the lab: across the test split the median weekly gap between the highest and lowest seed's equity share is 72 percentage points. It is the seed variance the report describes, seen in holdings.
+
+### D-052 · Dashboard: the gated holdout replay was run, and the first real refresh
+**Date:** 2026-10-06 · **Decided by:** principal investigator (ran the replay; approved the first real refresh and finishing) · **Status:** done; supersedes the "not yet exercised" rows of D-051
+
+**The replay** (`holdout-replay`, typed by the principal investigator; second line of `reports/logs/holdout_access.jsonl`, commit `7c5dd15`, clean tree). All 184 replayed daily series equal
+`data/processed/holdout/eval_daily.parquet` with maximum difference 0.0; 143 decisions, 2024-01-05 to 2026-09-25; the re-run states equal the stored ones (V4 to 2.8e-11, the others exactly);
+the frozen models (HMM fold 236 fitted to 2026-07-27, encoder fold 19 fitted to 2025-11-24) reproduce the stored states on their apply windows (1.7e-12 at most). Artifacts committed in `e0b1353`.
+Nothing under `data/processed` changed (`make dashboard-verify-frozen` passes) and no statistic was computed.
+
+**The first real refresh** (2026-10-06, about 16:30 UTC, before the New York close). The vendor returned all 23 series; three new sessions (1, 2 and 5 October) joined the snapshot with the
+overlap agreeing to 1.5e-7 against the 1e-3 tolerance; the frozen models produced the new state rows; all 40 agents ran. Result: the weekly decision of Friday 2026-10-02 and a labelled preview
+as of Monday 2026-10-05. Ten seconds including loading the agents. It was then repeated from the page's Refresh button, which turned the badge from Cached to Live.
+
+**Added after it worked: every refresh checks itself against the recorded episode.** `latest_weights` now takes the replay's recorded holdout weights and requires each agent's continued episode
+to contain all 143 recorded decisions to 1e-9 before any live weight is shown (observed: 0.0 for all 40 agents). So "the live number is the continuation of the stored evaluation" is verified on
+every refresh, not assumed. A mismatch raises and the page keeps the last good result.
+
+**Tests.** The app tests no longer depend on this machine's state: the live cache is patched out by default, and expectations follow whichever window is the latest recorded. New tests cover the
+committed holdout artifacts, the allocation page through the holdout, and a refresh being refused when its episode does not contain the recorded one.
+
+**What the pages now show (stored and live facts, not claims).** Allocation: 398 weekly decisions, 2019 to 2026, the holdout boundary marked. Regimes: 237 refits; the latest transition matrix is
+September 2026's. What-if on the 2026-10-02 observation: moving the regime input across its whole range shifts the V4 seed-average equity share by 2.6 percentage points, while the ten seeds
+differ by 64.9 points on it.

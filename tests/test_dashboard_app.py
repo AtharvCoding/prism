@@ -33,6 +33,28 @@ ARTIFACTS = ROOT / dd.ARTIFACTS
 FORBIDDEN = re.compile(r"outperform|\balpha\b|signal strength|\b(buy|sell)\b(?! and hold)|price target|will (rise|fall|beat)", re.I)
 
 
+LATEST = "holdout" if (ARTIFACTS / "weights" / "holdout_agents.parquet").exists() else "test"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _no_local_live_cache():
+    """These tests describe the committed repository. A live cache left by this machine's last refresh must not leak in."""
+    from components import current
+
+    patch = pytest.MonkeyPatch()
+    patch.setattr(current.live, "read_cache", lambda _dir: None)
+    yield
+    patch.undo()
+
+
+@pytest.fixture(scope="module")
+def latest_recorded():
+    """The agents' weekly weights of the most recent recorded window (the holdout once its replay is committed)."""
+    import pandas as pd
+
+    return pd.read_parquet(ARTIFACTS / "weights" / f"{LATEST}_agents.parquet")
+
+
 def _open(page) -> AppTest:  # noqa: ANN001
     at = AppTest.from_file(str(APP), default_timeout=60).run()
     if page is not PAGES[0]:
@@ -254,7 +276,7 @@ def test_the_regimes_page_shows_the_stored_agreement_and_the_latest_stored_fold(
     table = next(t.value for t in at.table if "Agree" in t.value.columns)
     assert table.Period.tolist() == ["Train", "Validation", "Test", "Holdout", "All days"]
     assert table.Agree.tolist() == [ui.pct(summary[k]["agreement"], 1) for k in ("train", "val", "test", "holdout", "all")]
-    folds = pd.read_csv(ARTIFACTS / "regimes" / "hmm_folds_test.csv")
+    folds = pd.read_csv(ARTIFACTS / "regimes" / f"hmm_folds_{LATEST}.csv")
     last = folds.iloc[-1]
     matrix = next(t.value for t in at.table if "to Volatile" in t.value.columns)
     assert matrix.to_numpy().tolist() == [[last.p_00, last.p_01], [last.p_10, last.p_11]]
@@ -437,14 +459,17 @@ def test_home_leads_with_the_framing_and_the_null_and_is_the_first_page(rendered
     assert "no detectable benefit" in text and "did not beat" in text
 
 
-def test_without_the_frozen_models_the_live_page_shows_recorded_weights_and_says_so(rendered, recorded_weights):
-    """No gated replay has been run in the repository: nothing is fetched, the button is off, the source is named."""
-    agents, _ = recorded_weights
-    at = rendered["live"]
+def test_without_the_frozen_models_the_live_page_shows_recorded_weights_and_says_so(latest_recorded, monkeypatch):
+    """Where the gated replay's models are absent: nothing is fetched, the button is off, the source is named."""
+    from components import data
+
+    monkeypatch.setattr(data, "live_models_manifest", lambda: None)
+    at = _open(_page("live"))
+    agents = latest_recorded
     last = agents.decision_date.max()
-    assert not (ARTIFACTS / "live" / "models_manifest.json").exists()
     captions = " ".join(c.value for c in at.caption)
     assert "Not live." in captions and f"{last:%d %b %Y}" in captions and "gated holdout replay" in captions
+    assert "Stored results · as of " + str(last.date()) in " ".join(m.value for m in at.markdown)
     [refresh] = [b for b in at.button if b.label == "Refresh"]
     assert refresh.disabled
     table = next(t.value for t in at.table if "weight" in t.value.columns)
@@ -538,9 +563,9 @@ needs_agents = pytest.mark.skipif(not (ROOT / "data" / "processed" / "tier2" / "
 
 
 @needs_agents
-def test_the_what_if_lab_at_today_equals_the_live_weights_exactly(recorded_weights):
+def test_the_what_if_lab_at_today_equals_the_live_weights_exactly(latest_recorded):
     """D6 acceptance: with the input untouched the lab shows the same weights as the Live page."""
-    agents, _ = recorded_weights
+    agents = latest_recorded
     at = _open(_page("whatif"))
     assert not at.exception and any("**Showing the actual input, untouched.**" in c.value for c in at.caption)
     metrics = {m.label: (m.value, m.delta) for m in at.metric}
@@ -610,3 +635,28 @@ def test_once_the_frozen_models_exist_refresh_is_offered_even_before_the_first_r
     refresh.click().run()
     assert not at.exception and any("ConnectionError: offline" in c.value for c in at.caption)
     assert any("Not live." in c.value for c in at.caption)                  # still the recorded weights, still labelled
+
+
+# --------------------------------------------------------------------------- after the gated replay: the holdout is on the pages
+needs_holdout = pytest.mark.skipif(LATEST != "holdout", reason="the gated holdout replay's artifacts are not in this checkout")
+
+
+@needs_holdout
+def test_the_allocation_page_runs_through_the_holdout_and_marks_where_it_begins(latest_recorded):
+    import pandas as pd
+
+    at = _open(_page("allocation"))
+    assert not at.exception and not any("stop at the end of the test split" in i.value for i in at.info)
+    test = pd.read_parquet(ARTIFACTS / "weights" / "test_agents.parquet")
+    n = test.decision_date.nunique() + latest_recorded.decision_date.nunique()
+    assert any(f"at each of {n} weekly decisions" in c.value for c in at.caption)
+    last = latest_recorded.decision_date.max()
+    table = next(t.value for t in at.table if "target weight" in t.value.columns)          # the default week is the latest recorded one
+    rows = latest_recorded[(latest_recorded.variant == "V4") & (latest_recorded.decision_date == last)]
+    assert table.loc["GLD", "target weight"] == pytest.approx(rows.w_GLD.mean(), abs=1e-15)
+
+
+@needs_holdout
+def test_the_regimes_page_no_longer_says_the_holdout_refits_are_missing(rendered):
+    captions = " ".join(c.value for c in rendered["regimes"].caption)
+    assert "has not been run in this copy" not in captions and "One point per monthly refit (237 of them)" in captions

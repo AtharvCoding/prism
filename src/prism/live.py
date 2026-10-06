@@ -491,29 +491,46 @@ def rollout(cfg, states: pd.DataFrame, close: pd.DataFrame, policy, *, start: pd
 
 
 def latest_weights(cfg, states: dict[str, pd.DataFrame], close: pd.DataFrame, policies: dict[tuple[str, int], Any], *,  # noqa: ANN001
-                   start: pd.Timestamp) -> dict[str, Any]:
+                   start: pd.Timestamp, recorded: pd.DataFrame | None = None, atol: float = 1e-9) -> dict[str, Any]:
     """Every agent's latest weekly decision and, mid-week, its preview as of the latest close.
 
     Returns ``decision_date``, ``as_of`` (the last session), ``is_preview`` (a preview exists) and two frames,
     ``decision`` and ``preview`` (``None`` when the last session is itself the decision), one row per agent.
+
+    ``recorded`` is the replay's weekly weights for the same episode. When given, every agent's continued episode
+    must contain the recorded one (same decision dates, target weights within ``atol``), or :class:`LiveModelError`
+    is raised: the live number is then, checkably, the continuation of the stored evaluation and nothing else.
     """
     sessions = pd.DatetimeIndex(next(iter(states.values())).index)
     sessions = sessions[sessions >= pd.Timestamp(start)].intersection(close.index)
     decision_date, complete = decision_calendar(sessions)
 
-    def at(end: pd.Timestamp) -> tuple[pd.DataFrame, dict[str, list[float]]]:
+    worst = 0.0
+
+    def at(end: pd.Timestamp, check: bool = False) -> tuple[pd.DataFrame, dict[str, list[float]]]:
+        nonlocal worst
         rows, observations = [], {}
         for (variant, seed), policy in policies.items():
-            res = rollout(cfg, states[variant], close, policy, start=start, end=end)["latest"]
+            full = rollout(cfg, states[variant], close, policy, start=start, end=end)
+            if check and recorded is not None:
+                want = recorded[(recorded.variant == variant) & (recorded.seed == seed)].set_index("decision_date")
+                got = full["decisions"].set_index("decision_date")
+                cols = [c for c in want.columns if c.startswith("w_")]
+                if len(want) == 0 or not want.index.isin(got.index).all():
+                    raise LiveModelError(f"{variant} seed {seed}: the continued episode does not contain the recorded decisions")
+                worst = max(worst, float(np.abs(got.loc[want.index, cols].to_numpy() - want[cols].to_numpy()).max()))
+            res = full["latest"]
             rows.append({"variant": variant, "seed": seed, "turnover": res["turnover"], **{f"w_{k}": v for k, v in res["weights"].items()},
                          **{f"p_{k}": v for k, v in res["held"].items()}})
             observations[f"{variant}|s{seed}"] = [float(x) for x in res["observation"]]
         return pd.DataFrame(rows), observations
 
-    decision, observations = at(decision_date)
+    decision, observations = at(decision_date, check=True)
+    if recorded is not None and not worst <= atol:
+        raise LiveModelError(f"the continued episode differs from the recorded one by {worst:.2e}; the live weights are not shown")
     preview = None if complete else at(sessions[-1])[0]
     return {"decision_date": decision_date, "as_of": sessions[-1], "is_preview": not complete, "decision": decision, "preview": preview,
-            "observations": observations}
+            "observations": observations, "recorded_max_abs_diff": worst if recorded is not None else None}
 
 
 def ensemble(frame: pd.DataFrame, prefix: str = "w_") -> pd.DataFrame:
@@ -583,7 +600,7 @@ def benchmark_weights(cfg, close: pd.DataFrame, date: pd.Timestamp) -> pd.DataFr
 
 def refresh(cfg, root: Path, *, now: pd.Timestamp, window: str = "holdout", models_dir: Path | None = None,  # noqa: ANN001
             cache_dir: Path | None = None, fetch=fetch_recent, policies: dict[tuple[str, int], Any] | None = None,
-            expected_manifest: dict[str, Any] | None = None, overlap: int = 60) -> dict[str, Any]:
+            expected_manifest: dict[str, Any] | None = None, overlap: int = 60, recorded: pd.DataFrame | None = None) -> dict[str, Any]:
     """Fetch, splice, compute the new states with the frozen models, continue every agent's episode, and cache the result.
 
     ``window`` names the stored evaluation whose episode is continued (``holdout`` for the real thing; ``test`` only for
@@ -622,7 +639,9 @@ def refresh(cfg, root: Path, *, now: pd.Timestamp, window: str = "holdout", mode
     close_b = build_features(raw, cfg, "B").close
     episode_start = build_split_plan(cfg)[window].effective_start
     policies = policies if policies is not None else load_policies(cfg, root)
-    res = latest_weights(cfg, states, close_b, policies, start=episode_start)
+    if recorded is not None:
+        recorded = recorded[recorded.decision_date < end]              # only what the frozen models' own period covers
+    res = latest_weights(cfg, states, close_b, policies, start=episode_start, recorded=recorded)
     regime = states["V4"][list(REGIME_COLUMNS)].iloc[-260:]
     latent = states["V2"][[c for c in states["V2"].columns if c.startswith("latent_")]].iloc[-1]
     risky = len(cfg.data.allocatable[cfg.env.universe])
@@ -632,6 +651,7 @@ def refresh(cfg, root: Path, *, now: pd.Timestamp, window: str = "holdout", mode
         "as_of": str(res["as_of"].date()), "decision_date": str(res["decision_date"].date()), "is_preview": bool(res["is_preview"]),
         "fetched_utc": str(pd.Timestamp(now).tz_convert("UTC") if pd.Timestamp(now).tzinfo is not None else pd.Timestamp(now)),
         "window": window, "models": {"end": models.meta["end"], "hmm_fit_end": models.hmm["fit_end"], "encoder_fit_end": models.encoder["fit_end"]},
+        "recorded_episode_max_abs_diff": res["recorded_max_abs_diff"],
         "new_sessions": report["new_sessions"], "splice": {"anchor": report["anchor"], "overlap_sessions": report["overlap_sessions"],
                                                            "max_diff": max(t["max_diff"] for t in report["tickers"].values())},
         "n_lines": risky + 1, "columns": columns, "observations": res["observations"],

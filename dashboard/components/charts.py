@@ -299,8 +299,8 @@ def allocation_area(sleeves: pd.DataFrame, p_volatile: pd.Series, holdout_start:
                                  hovertemplate=f"{name} %{{y:.1%}}<extra></extra>"), row=2, col=1)
     if holdout_start is not None:
         fig.add_vline(x=holdout_start, line={"color": c["ink"], "width": 1}, row=2, col=1)
-        fig.add_annotation(x=holdout_start, y=1.0, yref="y2", xanchor="left", yanchor="bottom", showarrow=False, xshift=4,
-                           text="holdout from here", font={"color": c["ink_2"], "size": 12})
+        fig.add_annotation(x=holdout_start, y=1.0, yref="paper", xanchor="left", yanchor="bottom", showarrow=False, yshift=2,
+                           text="holdout from here →", font={"color": c["ink_2"], "size": 12})
     fig.update_yaxes(tickformat=".0%", range=[0, 1], title_text="share of the portfolio", row=2, col=1)
     fig.update_yaxes(showgrid=False, row=1, col=1)
     fig.update_xaxes(showgrid=False)
